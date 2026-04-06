@@ -53,8 +53,8 @@ export default function AgentResultPanel({
     });
   };
 
-  const VerdictIcon = result.verdict ? VERDICT_ICONS[result.verdict] : null;
-  const verdictColor = result.verdict ? VERDICT_COLORS[result.verdict] : "";
+  const VerdictIcon = result.verdict ? VERDICT_ICONS[result.verdict as keyof typeof VERDICT_ICONS] : null;
+  const verdictColor = result.verdict ? VERDICT_COLORS[result.verdict as keyof typeof VERDICT_COLORS] : "";
 
   return (
     <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
