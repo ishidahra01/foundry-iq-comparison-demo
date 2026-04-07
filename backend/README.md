@@ -141,8 +141,15 @@ Delete a session
 |----------|-------------|---------|----------|
 | `AZURE_AI_PROJECT_ENDPOINT` | Azure AI Project endpoint | - | No* |
 | `CLASSIC_RAG_AGENT_NAME` | Name of Classic RAG agent | `classic-rag-agent` | No |
+| `CLASSIC_RAG_AGENT_VERSION` | Optional fixed version for Classic RAG agent | latest | No |
 | `FOUNDRY_IQ_AGENT_NAME` | Name of Foundry IQ agent | `foundry-iq-agent` | No |
+| `FOUNDRY_IQ_AGENT_VERSION` | Optional fixed version for Foundry IQ agent | latest | No |
 | `MOCK_MODE` | Enable mock responses | `true` if no Azure config | No |
+| `AGENT_AUTO_APPROVE_MCP` | Auto-approve MCP tool invocations such as knowledge base retrieval | `true` | No |
+| `AGENT_CLIENT_DEBUG` | Log response status snapshots and stream event names | `false` | No |
+| `AGENT_CLIENT_DEBUG_RAW` | Log full serialized SDK payloads for debugging | `false` | No |
+| `AGENT_RESPONSE_POLL_INTERVAL_SEC` | Poll interval when agent response is still running | `0.75` | No |
+| `AGENT_RESPONSE_POLL_TIMEOUT_SEC` | Max wait time for in-progress agent responses | `45` | No |
 | `BACKEND_HOST` | Host to bind to | `0.0.0.0` | No |
 | `BACKEND_PORT` | Port to bind to | `8000` | No |
 

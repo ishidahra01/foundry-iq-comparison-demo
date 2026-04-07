@@ -4,6 +4,8 @@ Supports both real agents and mock mode for local testing.
 """
 
 import asyncio
+import logging
+import os
 import time
 from datetime import datetime
 from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
@@ -19,6 +21,9 @@ except ImportError:
     DefaultAzureCredential = None
 
 
+logger = logging.getLogger(__name__)
+
+
 class FoundryAgentClient:
     """Client for Azure AI Projects agents with mock support."""
 
@@ -26,19 +31,28 @@ class FoundryAgentClient:
         self,
         project_endpoint: Optional[str],
         classic_agent_name: str,
+        classic_agent_version: Optional[str],
         foundry_iq_agent_name: str,
+        foundry_iq_agent_version: Optional[str],
         mock_mode: bool = False,
     ):
         self.project_endpoint = project_endpoint
         self.classic_agent_name = classic_agent_name
+        self.classic_agent_version = classic_agent_version
         self.foundry_iq_agent_name = foundry_iq_agent_name
+        self.foundry_iq_agent_version = foundry_iq_agent_version
         self.mock_mode = mock_mode or not project_endpoint
+        self.debug_logging = os.getenv("AGENT_CLIENT_DEBUG", "false").lower() == "true"
+        self.debug_raw_payloads = os.getenv("AGENT_CLIENT_DEBUG_RAW", "false").lower() == "true"
+        self.auto_approve_mcp = os.getenv("AGENT_AUTO_APPROVE_MCP", "true").lower() == "true"
+        self.response_poll_interval_sec = float(os.getenv("AGENT_RESPONSE_POLL_INTERVAL_SEC", "0.75"))
+        self.response_poll_timeout_sec = float(os.getenv("AGENT_RESPONSE_POLL_TIMEOUT_SEC", "45"))
 
         if self.mock_mode:
-            print("Running in MOCK MODE - using simulated agent responses")
+            logger.warning("Running in MOCK MODE - using simulated agent responses")
             self.mock_generator = MockResponseGenerator()
         else:
-            print(f"Connected to Azure AI Project: {project_endpoint}")
+            logger.info("Connected to Azure AI Project: %s", project_endpoint)
 
     async def execute_agent(
         self,
@@ -97,6 +111,7 @@ class FoundryAgentClient:
     ) -> AgentResult:
         """Execute a real Azure AI Projects agent through the Responses API."""
         agent_name = self._resolve_agent_name(agent_type)
+        agent_version = self._resolve_agent_version(agent_type)
         start_time = time.time()
 
         try:
@@ -109,12 +124,15 @@ class FoundryAgentClient:
             ):
                 response = await openai_client.responses.create(
                     input=question,
-                    extra_body={
-                        "agent_reference": {
-                            "name": agent_name,
-                            "type": "agent_reference",
-                        }
-                    },
+                    extra_body=self._build_agent_reference_body(agent_name, agent_version),
+                )
+                response = await self._await_response_completion(
+                    openai_client,
+                    response,
+                    agent_type,
+                    agent_name,
+                    agent_version,
+                    run_id,
                 )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
@@ -145,6 +163,7 @@ class FoundryAgentClient:
     ) -> AsyncIterator[TraceEvent]:
         """Execute a real Azure AI Projects agent with Responses API streaming."""
         agent_name = self._resolve_agent_name(agent_type)
+        agent_version = self._resolve_agent_version(agent_type)
 
         try:
             self._validate_real_mode_dependencies()
@@ -157,16 +176,12 @@ class FoundryAgentClient:
                 stream = await openai_client.responses.create(
                     input=question,
                     stream=True,
-                    extra_body={
-                        "agent_reference": {
-                            "name": agent_name,
-                            "type": "agent_reference",
-                        }
-                    },
+                    extra_body=self._build_agent_reference_body(agent_name, agent_version),
                 )
 
                 answer_started = False
                 async for data in stream:
+                    self._log_stream_event(agent_type, agent_name, run_id, data)
                     event = self._parse_trace_event(agent_type, data, run_id, answer_started)
                     if event:
                         if event.event_type == "answer_synthesis_started":
@@ -184,6 +199,9 @@ class FoundryAgentClient:
     def _resolve_agent_name(self, agent_type: str) -> str:
         return self.classic_agent_name if agent_type == "classic-rag" else self.foundry_iq_agent_name
 
+    def _resolve_agent_version(self, agent_type: str) -> Optional[str]:
+        return self.classic_agent_version if agent_type == "classic-rag" else self.foundry_iq_agent_version
+
     def _parse_agent_response(
         self,
         agent_type: str,
@@ -194,10 +212,12 @@ class FoundryAgentClient:
     ) -> AgentResult:
         """Parse a Responses API result into AgentResult."""
         citations = self._extract_citations(response)
+        answer = self._extract_output_text(response)
+        error = self._build_response_error(response, answer)
         return AgentResult(
             agent_type=agent_type,
             agent_name=agent_name,
-            answer=self._extract_output_text(response),
+            answer=answer,
             verdict=self._extract_verdict(response),
             citations=citations,
             trace_events=self._build_trace_events_from_response(agent_type, response, run_id),
@@ -210,7 +230,7 @@ class FoundryAgentClient:
             ),
             sources_used=self._extract_sources_used(citations),
             query_plan=self._extract_query_plan(response),
-            error=None,
+            error=error,
         )
 
     def _parse_trace_event(
@@ -248,6 +268,44 @@ class FoundryAgentClient:
                 metadata={"run_id": run_id},
             )
 
+        if event_type in {
+            "response.file_search_call.searching",
+            "response.web_search_call.searching",
+            "response.mcp_call.in_progress",
+            "response.function_call_arguments.delta",
+            "response.mcp_call.arguments.delta",
+        }:
+            return TraceEvent(
+                timestamp=timestamp,
+                event_type="tool_call_started",
+                status="running",
+                mode=agent_type,
+                metadata={
+                    "run_id": run_id,
+                    "sdk_event_type": event_type,
+                    "event": self._serialize_value(data),
+                },
+            )
+
+        if event_type in {
+            "response.file_search_call.completed",
+            "response.web_search_call.completed",
+            "response.mcp_call.completed",
+            "response.function_call_arguments.done",
+            "response.mcp_call.arguments.done",
+        }:
+            return TraceEvent(
+                timestamp=timestamp,
+                event_type="tool_call_completed",
+                status="completed",
+                mode=agent_type,
+                metadata={
+                    "run_id": run_id,
+                    "sdk_event_type": event_type,
+                    "event": self._serialize_value(data),
+                },
+            )
+
         if event_type in {"response.output_item.added", "response.output_item.done"}:
             item = getattr(data, "item", None)
             item_type = getattr(item, "type", None)
@@ -267,7 +325,7 @@ class FoundryAgentClient:
                 },
             )
 
-        if event_type in {"response.text.done", "response.completed"}:
+        if event_type in {"response.output_text.done", "response.completed"}:
             final_response = getattr(data, "response", None)
             return TraceEvent(
                 timestamp=timestamp,
@@ -280,16 +338,205 @@ class FoundryAgentClient:
                 },
             )
 
-        if event_type == "error":
+        if event_type in {"error", "response.failed", "response.incomplete", "response.mcp_call.failed"}:
             return TraceEvent(
                 timestamp=timestamp,
                 event_type="error",
                 status="failed",
                 mode=agent_type,
-                metadata={"run_id": run_id, "error": self._serialize_value(data)},
+                metadata={
+                    "run_id": run_id,
+                    "sdk_event_type": event_type,
+                    "error": self._serialize_value(data),
+                },
             )
 
         return None
+
+    def _build_agent_reference_body(self, agent_name: str, agent_version: Optional[str]) -> Dict[str, Any]:
+        agent_reference: Dict[str, Any] = {
+            "name": agent_name,
+            "type": "agent_reference",
+        }
+        if agent_version:
+            agent_reference["version"] = agent_version
+        return {"agent_reference": agent_reference}
+
+    async def _await_response_completion(
+        self,
+        openai_client: Any,
+        response: Any,
+        agent_type: str,
+        agent_name: str,
+        agent_version: Optional[str],
+        run_id: str,
+    ) -> Any:
+        self._log_response_snapshot("create", agent_type, agent_name, run_id, response)
+
+        response = await self._resolve_mcp_approval_requests(
+            openai_client,
+            response,
+            agent_type,
+            agent_name,
+            agent_version,
+            run_id,
+        )
+
+        status = getattr(response, "status", None)
+        response_id = getattr(response, "id", None)
+        if self._is_terminal_response_status(status) or not response_id:
+            return response
+
+        deadline = time.time() + self.response_poll_timeout_sec
+        while time.time() < deadline:
+            await asyncio.sleep(self.response_poll_interval_sec)
+            response = await openai_client.responses.retrieve(
+                response_id,
+                extra_body=self._build_agent_reference_body(agent_name, agent_version),
+            )
+            self._log_response_snapshot("retrieve", agent_type, agent_name, run_id, response)
+            response = await self._resolve_mcp_approval_requests(
+                openai_client,
+                response,
+                agent_type,
+                agent_name,
+                agent_version,
+                run_id,
+            )
+
+            if self._is_terminal_response_status(getattr(response, "status", None)):
+                return response
+
+        raise TimeoutError(
+            f"Timed out waiting for agent response {response_id} to complete after "
+            f"{self.response_poll_timeout_sec:.1f}s."
+        )
+
+    def _is_terminal_response_status(self, status: Optional[str]) -> bool:
+        return status in {"completed", "failed", "cancelled", "incomplete"}
+
+    async def _resolve_mcp_approval_requests(
+        self,
+        openai_client: Any,
+        response: Any,
+        agent_type: str,
+        agent_name: str,
+        agent_version: Optional[str],
+        run_id: str,
+    ) -> Any:
+        approval_requests = self._extract_mcp_approval_requests(response)
+        if not approval_requests:
+            return response
+
+        if not self.auto_approve_mcp:
+            logger.warning(
+                "MCP approval request requires manual approval: agent_type=%s agent_name=%s run_id=%s requests=%s",
+                agent_type,
+                agent_name,
+                run_id,
+                [request.get("id") for request in approval_requests],
+            )
+            return response
+
+        approvals = [
+            {
+                "type": "mcp_approval_response",
+                "approval_request_id": request["id"],
+                "approve": True,
+            }
+            for request in approval_requests
+        ]
+
+        logger.info(
+            "Auto-approving MCP requests: agent_type=%s agent_name=%s run_id=%s request_ids=%s",
+            agent_type,
+            agent_name,
+            run_id,
+            [request["id"] for request in approval_requests],
+        )
+
+        follow_up_response = await openai_client.responses.create(
+            input=approvals,
+            previous_response_id=getattr(response, "id", None),
+            extra_body=self._build_agent_reference_body(agent_name, agent_version),
+        )
+        self._log_response_snapshot("approve", agent_type, agent_name, run_id, follow_up_response)
+        return follow_up_response
+
+    def _extract_mcp_approval_requests(self, response: Any) -> List[Dict[str, Any]]:
+        approval_requests: List[Dict[str, Any]] = []
+        for item in self._extract_output_items(response):
+            if getattr(item, "type", None) != "mcp_approval_request":
+                continue
+
+            approval_request = self._serialize_value(item)
+            if isinstance(approval_request, dict) and approval_request.get("id"):
+                approval_requests.append(approval_request)
+
+        return approval_requests
+
+    def _build_response_error(self, response: Any, answer: str) -> Optional[str]:
+        status = getattr(response, "status", None)
+        response_error = getattr(response, "error", None)
+        incomplete_details = getattr(response, "incomplete_details", None)
+
+        if response_error:
+            message = getattr(response_error, "message", None) or str(self._serialize_value(response_error))
+            return f"Response status '{status}': {message}" if status else message
+
+        if status in {"failed", "cancelled", "incomplete"}:
+            details = self._serialize_value(incomplete_details)
+            return f"Response status '{status}' with details: {details}"
+
+        if status == "completed" and not answer:
+            item_types = [getattr(item, "type", None) for item in self._extract_output_items(response)]
+            return f"Agent completed without a final answer. Output item types: {item_types}"
+
+        return None
+
+    def _log_response_snapshot(
+        self,
+        stage: str,
+        agent_type: str,
+        agent_name: str,
+        run_id: str,
+        response: Any,
+    ) -> None:
+        if not self.debug_logging:
+            return
+
+        snapshot = {
+            "stage": stage,
+            "agent_type": agent_type,
+            "agent_name": agent_name,
+            "run_id": run_id,
+            "response_id": getattr(response, "id", None),
+            "status": getattr(response, "status", None),
+            "output_text": self._extract_output_text(response),
+            "output_item_types": [getattr(item, "type", None) for item in self._extract_output_items(response)],
+            "error": self._serialize_value(getattr(response, "error", None)),
+            "incomplete_details": self._serialize_value(getattr(response, "incomplete_details", None)),
+        }
+        logger.info("Agent response snapshot: %s", snapshot)
+
+        if self.debug_raw_payloads:
+            logger.info("Agent response raw payload: %s", self._serialize_value(response))
+
+    def _log_stream_event(self, agent_type: str, agent_name: str, run_id: str, data: Any) -> None:
+        if not self.debug_logging:
+            return
+
+        event_type = getattr(data, "type", None)
+        logger.info(
+            "Agent stream event: agent_type=%s agent_name=%s run_id=%s event_type=%s",
+            agent_type,
+            agent_name,
+            run_id,
+            event_type,
+        )
+
+        if self.debug_raw_payloads:
+            logger.info("Agent stream raw payload: %s", self._serialize_value(data))
 
     def _validate_real_mode_dependencies(self) -> None:
         if AIProjectClient is None or DefaultAzureCredential is None:

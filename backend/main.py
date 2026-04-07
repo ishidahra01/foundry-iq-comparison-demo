@@ -56,7 +56,9 @@ if legacy_foundry_endpoint and not os.getenv("AZURE_AI_PROJECT_ENDPOINT"):
 agent_client = FoundryAgentClient(
     project_endpoint=os.getenv("AZURE_AI_PROJECT_ENDPOINT"),
     classic_agent_name=os.getenv("CLASSIC_RAG_AGENT_NAME", "classic-rag-agent"),
+    classic_agent_version=os.getenv("CLASSIC_RAG_AGENT_VERSION"),
     foundry_iq_agent_name=os.getenv("FOUNDRY_IQ_AGENT_NAME", "foundry-iq-agent"),
+    foundry_iq_agent_version=os.getenv("FOUNDRY_IQ_AGENT_VERSION"),
     mock_mode=os.getenv("MOCK_MODE", "false").lower() == "true"
 )
 
