@@ -48,7 +48,7 @@ Successfully implemented a comprehensive demo application comparing **Classic RA
 - `frontend/tailwind.config.ts` - Tailwind config
 - `frontend/README.md` - Frontend documentation
 
-### 3. Sample Data (8 Documents)
+### 3. Sample Data (13 Documents)
 - ✅ `01_project_overview.md` - Project context
 - ✅ `02_architecture_decision.md` - Technical decisions
 - ✅ `03_security_policy.md` - Security requirements
@@ -57,7 +57,12 @@ Successfully implemented a comprehensive demo application comparing **Classic RA
 - ✅ `06_rollout_plan.md` - Deployment timeline
 - ✅ `07_open_issues.md` - Known issues
 - ✅ `08_exception_process.md` - Exception workflow
-- ✅ `sample-data/README.md` - Data explanation
+- ✅ `09_regional_compliance.md` - Data residency and logging rules
+- ✅ `10_resiliency_plan.md` - SLOs, DR, and failover readiness
+- ✅ `11_customer_feedback.md` - Pilot CSAT findings
+- ✅ `12_incident_history.md` - Postmortems and action items
+- ✅ `13_vendor_risk.md` - Third-party contract risks
+- ✅ `sample-data/README.md` - Data explanation (now includes >50-chunk corpus guidance)
 
 **Scenario:** Go/No-Go Launch Advisor for AI feature release
 

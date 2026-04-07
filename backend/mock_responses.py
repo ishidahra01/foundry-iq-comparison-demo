@@ -50,30 +50,29 @@ class MockResponseGenerator:
     ) -> AgentResult:
         """Generate Classic RAG mock response"""
 
-        answer = """Based on the project documentation, here is what I found:
+        answer = """Based on the top-ranked documents (AI Search cap at 50 chunks), here is a summary:
 
-The AI customer support feature is planned for launch on April 30, 2026 in the Japan region. The project uses Azure OpenAI Service with GPT-4 and Azure AI Search for the knowledge base.
+- Launch is planned for April 30, 2026 in the Japan region, using Azure OpenAI and Azure AI Search.
+- Budget is estimated at $27,400/month vs $25,000 budgeted (about 9.6% over). Cost optimization is proposed but not yet reflected.
+- Security assessment is still pending and conflicts with the rollout plan dates.
+- Rollout remains phased: Internal Beta → Limited Beta → Soft Launch → GA.
 
-Current status shows most items are completed, including core development, authentication, and basic testing. However, there are some pending items including security assessment and penetration testing.
-
-The monthly budget is $25,000 but current estimates show $27,400/month, which is approximately 9.6% over budget. Cost optimization strategies have been proposed.
-
-The rollout plan includes multiple phases: Internal Beta, Limited Beta, Soft Launch, and General Availability. Some technical details and open issues are mentioned in the documentation."""
+Data residency, vendor risk, and resiliency details were not present in the retrieved set, so risk coverage may be incomplete."""
 
         citations = [
             Citation(
                 document="01_project_overview.md",
-                relevance_score=0.85,
+                relevance_score=0.82,
                 content="Production Launch: April 30, 2026"
             ),
             Citation(
                 document="05_budget_guardrail.md",
-                relevance_score=0.78,
+                relevance_score=0.76,
                 content="Total OpEx/month: $25,000 budgeted, $27,400 estimated"
             ),
             Citation(
                 document="06_rollout_plan.md",
-                relevance_score=0.72,
+                relevance_score=0.70,
                 content="Phase 4: General Availability (April 30)"
             )
         ]
@@ -94,8 +93,13 @@ The rollout plan includes multiple phases: Internal Beta, Limited Beta, Soft Lau
                 elapsed_ms=150,
                 mode="classic-rag",
                 metadata={
-                    "retrieved_count": 12,
-                    "top_sources": ["01_project_overview.md", "05_budget_guardrail.md"]
+                    "retrieved_count": 50,
+                    "top_sources": [
+                        "01_project_overview.md",
+                        "05_budget_guardrail.md",
+                        "06_rollout_plan.md"
+                    ],
+                    "note": "Hit AI Search top-50 limit; compliance/resiliency docs may be missing"
                 }
             ),
             TraceEvent(
@@ -126,7 +130,7 @@ The rollout plan includes multiple phases: Internal Beta, Limited Beta, Soft Lau
             metrics=Metrics(
                 total_time_ms=1250,
                 token_usage={"input": 850, "output": 420},
-                retrieval_count=12,
+                retrieval_count=50,
                 subquery_count=1,
                 tool_calls=1
             ),
@@ -144,102 +148,76 @@ The rollout plan includes multiple phases: Internal Beta, Limited Beta, Soft Lau
     ) -> AgentResult:
         """Generate Foundry IQ mock response (more comprehensive)"""
 
-        answer = """**Launch Decision: CONDITIONAL GO with Critical Blockers**
+        answer = """**Launch Decision: CONDITIONAL GO — block until residency/DR/vendor gaps are closed**
 
-**Overall Assessment:**
-Based on comprehensive analysis across project documentation, internal policies, budget constraints, and current implementation status, I recommend a **Conditional Go** for the April 30, 2026 launch, contingent on resolving two critical blockers.
+**What I checked (6 sub-queries):**
+- Security & policy
+- Budget status
+- Regional compliance (JP primary, SG failover, EU analytics)
+- Resiliency/DR readiness
+- Incident history + customer feedback
+- Vendor/contract risk
 
-**Critical Blockers (Must Resolve Before Launch):**
+**Critical Blockers:**
+1) **Data residency & logging** (🔴) — East US log export still enabled; SG failover lacks tokenization; translation vendor in US without gateway. Due: April 7-8. (09, 12, 13)
+2) **Resiliency/DR gaps** (🔴) — Need 3x Search replicas, SG failover automation, cache warmup; chaos test showed stale data after ingest spikes. Due: April 12. (10, 12)
+3) **Vendor contracts** (🔴) — Translation SLA & DPIA pending; CRM SCC not signed. Must decide before enabling SG failover analytics. (13)
 
-1. **Security Assessment Timeline Conflict** 🔴
-   - Security assessment scheduled April 10-15 conflicts with Internal Beta start date (also April 10)
-   - Impact: Cannot proceed with Internal Beta without security sign-off
-   - Resolution Options: (A) Delay Phase 1 to April 16, (B) Expedite assessment to April 6-9
-   - Decision deadline: April 2, 2026
+**Important Risks:**
+- **Incidents & CSAT:** Stale-data and translation outages unresolved; customer feedback calls out missing outage/postmortem content. (11, 12)
+- **Budget:** Still ~$2.4k/month over; optimization needed but not blocking launch if controls land. (05)
+- **Timeline linkage:** Security assessment overlaps with Internal Beta; keep April 2 decision checkpoint. (06, 03)
 
-2. **PII Redaction Not Implemented** 🔴
-   - Customer PII currently logged in plain text in Application Insights
-   - Violation of security policy requirement
-   - Status: Implementation 60% complete, testing April 6-7
-   - Target resolution: April 8, 2026
+**Recommendation:** Conditional Go **only after** (a) US log export disabled + SG tokenization validated, (b) DR automation rehearsal completed, (c) translation vendor gated or replaced, (d) incident/postmortem content added to KB.
 
-**Budget Status:** ⚠️ OVER BUDGET
-- Allocated: $25,000/month
-- Current estimate: $27,400/month (+9.6% overrun)
-- Primary driver: Azure OpenAI costs ($18,000/month vs $15,000 budgeted)
-- Mitigation: Cost optimization plan approved, expected savings $5,400/month
-- Finance approval: Conditional (requires optimization implementation by May 31)
-
-**Policy Compliance:**
-- ✅ Preview Feature Policy: COMPLIANT - Using GPT-4 (GA version)
-  - Note: GPT-4 Turbo exception request was DENIED on March 8, 2026
-- ⏳ Security Policy: PARTIAL - 2 critical items pending (PII redaction, rate limiting)
-- ⏳ Compliance Requirements: Under review
-
-**Open Issues Summary:**
-- 🔴 Critical: 2 blockers (PII redaction, rate limiting configuration)
-- ⚠️ High Priority: 3 issues in progress (DR drill failure, MFA enforcement, test coverage)
-- Current status: **🟡 YELLOW (Conditional Go)**
-
-**Key Dependencies:**
-The security assessment completion is a dependency for starting Internal Beta. The rollout plan shows Internal Beta must complete successfully before proceeding to Limited Beta (April 16-22), which must complete before Soft Launch (April 23-28), culminating in GA on April 30.
-
-**Recommendation:**
-**CONDITIONAL GO** - Approve launch preparation to continue, subject to:
-1. Resolution of both critical blockers by April 8
-2. Successful security assessment by April 15
-3. Daily status reviews until blockers cleared
-4. Re-assess on April 8 for final Go/No-Go decision
-
-**Next Actions:**
-1. **Immediate (by April 2):** Decide on security assessment timeline conflict resolution
-2. **By April 5:** Complete rate limiting configuration
-3. **By April 8:** Complete PII redaction implementation
-4. **By April 15:** Complete security assessment with no critical findings
-5. **April 8:** Final Go/No-Go decision point"""
+**Next Actions (owner/due):**
+- Disable US log export and retarget to JP with redaction (Security, 4/7).
+- Scale Search to 3 replicas and rehearse SG automation with cache warmup (SRE, 4/12).
+- Decide on translation fallback: JP gateway or off by default; sign DPIA/SCC (Procurement, 4/8-4/10).
+- Publish incident summaries + outage scripts to KB to close CSAT gap (Product, 4/5)."""
 
         citations = [
             Citation(
-                document="03_security_policy.md",
-                chunk="Section 7.2 - Current Status",
-                relevance_score=0.95,
-                content="Blocking Items: Security assessment not completed, PII redaction in logs not implemented"
+                document="09_regional_compliance.md",
+                chunk="Logging & Retention",
+                relevance_score=0.96,
+                content="Open gap: log export still writes full transcripts to East US; SG failover must tokenize PII"
             ),
             Citation(
-                document="06_rollout_plan.md",
-                chunk="Phase 1: Internal Beta",
-                relevance_score=0.93,
-                content="🔴 BLOCKER: Security assessment timeline conflict - scheduled April 10-15, conflicting with Internal Beta"
+                document="10_resiliency_plan.md",
+                chunk="Load & Failure Testing",
+                relevance_score=0.92,
+                content="Chaos test showed 10-minute stale results; need 3 Search replicas and DR automation"
+            ),
+            Citation(
+                document="12_incident_history.md",
+                chunk="Open Action Items",
+                relevance_score=0.90,
+                content="Replace East US log export; automate throttling during ingest; translation retry pending"
+            ),
+            Citation(
+                document="13_vendor_risk.md",
+                chunk="Mitigations & Deadlines",
+                relevance_score=0.88,
+                content="Translation provider high risk; DPIA/SCC pending; decision required before SG analytics"
+            ),
+            Citation(
+                document="11_customer_feedback.md",
+                chunk="Escalation Analysis",
+                relevance_score=0.86,
+                content="Escalations cite missing outage/postmortem content and slow answers during spikes"
             ),
             Citation(
                 document="05_budget_guardrail.md",
                 chunk="Section 2.2 - OpEx Monthly",
-                relevance_score=0.91,
-                content="Total OpEx/month: $25,000 budgeted, $27,400 current estimate, +$2,400 variance (🔴 9.6% over)"
+                relevance_score=0.80,
+                content="Total OpEx/month: $25,000 budgeted, $27,400 current estimate, +$2,400 variance"
             ),
             Citation(
-                document="04_preview_feature_policy.md",
-                chunk="Section 7.1 - GPT-4 Turbo (DENIED)",
-                relevance_score=0.88,
-                content="Request Date: 2026-03-05, Status: DENIED. Alternative Approved: GPT-4 (GA) version 0613"
-            ),
-            Citation(
-                document="07_open_issues.md",
-                chunk="Issue #1: PII Redaction",
-                relevance_score=0.90,
-                content="Status: Open, Priority: High, Target Resolution: April 8, Current Status: 60% complete"
-            ),
-            Citation(
-                document="07_open_issues.md",
-                chunk="Launch Blockers Assessment",
-                relevance_score=0.89,
-                content="Current launch readiness: 🟡 YELLOW (Conditional Go). 2 critical blockers in progress"
-            ),
-            Citation(
-                document="02_architecture_decision.md",
-                chunk="ADR-001: Azure OpenAI Service Selection",
-                relevance_score=0.75,
-                content="Model: gpt-4 (version: 0613), Deployment: Japan East region, Capacity: 120K TPM"
+                document="06_rollout_plan.md",
+                chunk="Phase 1: Internal Beta",
+                relevance_score=0.78,
+                content="Security assessment timeline overlaps with Internal Beta start; needs reschedule or waiver"
             )
         ]
 
@@ -264,9 +242,10 @@ The security assessment completion is a dependency for starting Internal Beta. T
                     "planned_queries": [
                         "Security blockers and assessment status",
                         "Budget constraints and current spending",
-                        "Preview feature policy compliance",
-                        "Critical open issues affecting launch",
-                        "Rollout timeline and dependencies"
+                        "Regional compliance and data residency",
+                        "Resiliency / failover readiness",
+                        "Incident history and customer feedback",
+                        "Vendor contract and DPIA status"
                     ]
                 }
             ),
@@ -277,9 +256,16 @@ The security assessment completion is a dependency for starting Internal Beta. T
                 elapsed_ms=230,
                 mode="foundry-iq",
                 metadata={
-                    "subqueries_executed": 5,
-                    "total_results": 28,
-                    "sources": ["03_security_policy.md", "06_rollout_plan.md", "05_budget_guardrail.md", "04_preview_feature_policy.md", "07_open_issues.md"]
+                    "subqueries_executed": 6,
+                    "total_results": 82,
+                    "sources": [
+                        "09_regional_compliance.md",
+                        "10_resiliency_plan.md",
+                        "12_incident_history.md",
+                        "13_vendor_risk.md",
+                        "11_customer_feedback.md",
+                        "05_budget_guardrail.md"
+                    ]
                 }
             ),
             TraceEvent(
@@ -305,7 +291,29 @@ The security assessment completion is a dependency for starting Internal Beta. T
                 }
             ),
             TraceEvent(
-                timestamp=self._timestamp(650),
+                timestamp=self._timestamp(640),
+                event_type="tool_call_started",
+                status="completed",
+                elapsed_ms=20,
+                mode="foundry-iq",
+                metadata={
+                    "tool_name": "vendor_contract_checker",
+                    "query": "Translation and CRM contract residency terms"
+                }
+            ),
+            TraceEvent(
+                timestamp=self._timestamp(820),
+                event_type="tool_call_completed",
+                status="completed",
+                elapsed_ms=180,
+                mode="foundry-iq",
+                metadata={
+                    "tool_name": "vendor_contract_checker",
+                    "result_count": 2
+                }
+            ),
+            TraceEvent(
+                timestamp=self._timestamp(860),
                 event_type="answer_synthesis_started",
                 status="completed",
                 elapsed_ms=30,
@@ -315,10 +323,10 @@ The security assessment completion is a dependency for starting Internal Beta. T
                 }
             ),
             TraceEvent(
-                timestamp=self._timestamp(2800),
+                timestamp=self._timestamp(3000),
                 event_type="answer_completed",
                 status="completed",
-                elapsed_ms=2150,
+                elapsed_ms=2140,
                 mode="foundry-iq",
                 metadata={"answer_length": len(answer), "verdict": "Conditional"}
             )
@@ -334,27 +342,29 @@ The security assessment completion is a dependency for starting Internal Beta. T
             metrics=Metrics(
                 total_time_ms=2850,
                 token_usage={"input": 2450, "output": 920},
-                retrieval_count=28,
-                subquery_count=5,
-                tool_calls=3
+                retrieval_count=82,
+                subquery_count=6,
+                tool_calls=2
             ),
             sources_used=[
-                "03_security_policy.md",
-                "06_rollout_plan.md",
+                "09_regional_compliance.md",
+                "10_resiliency_plan.md",
+                "12_incident_history.md",
+                "13_vendor_risk.md",
+                "11_customer_feedback.md",
                 "05_budget_guardrail.md",
-                "04_preview_feature_policy.md",
-                "07_open_issues.md",
-                "02_architecture_decision.md",
-                "01_project_overview.md"
+                "06_rollout_plan.md",
+                "03_security_policy.md"
             ],
             query_plan={
                 "original_query": question,
                 "decomposed_queries": [
-                    "What are the security blockers?",
-                    "Is the budget approved?",
-                    "Are we using any preview features?",
-                    "What critical issues are open?",
-                    "What are the timeline dependencies?"
+                    "What are the security and policy blockers?",
+                    "Is the budget approved and by how much are we over?",
+                    "Are we compliant with JP/SG/EU data residency requirements?",
+                    "Is resiliency/DR ready for launch and failover?",
+                    "What incidents and customer feedback must we address?",
+                    "Which vendor contracts or SLAs block SG failover?"
                 ],
                 "retrieval_strategy": "multi-step_with_synthesis"
             }
@@ -381,7 +391,10 @@ The security assessment completion is a dependency for starting Internal Beta. T
                 status="completed",
                 elapsed_ms=150,
                 mode="classic-rag",
-                metadata={"retrieved_count": 12}
+                metadata={
+                    "retrieved_count": 50,
+                    "note": "AI Search top-50 cap hit"
+                }
             )),
             (0.2, TraceEvent(
                 timestamp=self._timestamp(200),
@@ -425,7 +438,7 @@ The security assessment completion is a dependency for starting Internal Beta. T
                 event_type="retrieval_started",
                 status="running",
                 mode="foundry-iq",
-                metadata={"planned_queries": 5}
+                metadata={"planned_queries": 6}
             )),
             (0.4, TraceEvent(
                 timestamp=self._timestamp(350),
@@ -433,7 +446,7 @@ The security assessment completion is a dependency for starting Internal Beta. T
                 status="completed",
                 elapsed_ms=230,
                 mode="foundry-iq",
-                metadata={"subqueries_executed": 5, "total_results": 28}
+                metadata={"subqueries_executed": 6, "total_results": 82}
             )),
             (0.1, TraceEvent(
                 timestamp=self._timestamp(380),
@@ -451,14 +464,29 @@ The security assessment completion is a dependency for starting Internal Beta. T
                 metadata={"tool_name": "foundry_iq_knowledge_base", "result_count": 3}
             )),
             (0.1, TraceEvent(
-                timestamp=self._timestamp(650),
+                timestamp=self._timestamp(640),
+                event_type="tool_call_started",
+                status="running",
+                mode="foundry-iq",
+                metadata={"tool_name": "vendor_contract_checker"}
+            )),
+            (0.4, TraceEvent(
+                timestamp=self._timestamp(820),
+                event_type="tool_call_completed",
+                status="completed",
+                elapsed_ms=180,
+                mode="foundry-iq",
+                metadata={"tool_name": "vendor_contract_checker", "result_count": 2}
+            )),
+            (0.2, TraceEvent(
+                timestamp=self._timestamp(860),
                 event_type="answer_synthesis_started",
                 status="running",
                 mode="foundry-iq",
                 metadata={}
             )),
             (1.5, TraceEvent(
-                timestamp=self._timestamp(2800),
+                timestamp=self._timestamp(3000),
                 event_type="answer_completed",
                 status="completed",
                 elapsed_ms=2150,

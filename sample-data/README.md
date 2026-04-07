@@ -79,6 +79,41 @@ An organization is planning to launch an AI-powered customer support feature to 
   - GPT-4 Turbo exception **DENIED** case study
   - High bar for preview feature exceptions
 
+### 09_regional_compliance.md
+- **Purpose:** Data residency, cross-border transfer, and logging rules
+- **Key Points:**
+  - JP primary storage required; SG failover must tokenize PII
+  - East US log export is non-compliant and must be disabled
+  - Translation vendor in US requires gateway or shutdown
+
+### 10_resiliency_plan.md
+- **Purpose:** SLOs, load testing, DR and failover readiness
+- **Key Points:**
+  - Capacity gap: need 3 search replicas before launch
+  - SG failover automation incomplete; cache cold-start risk
+  - Chaos test revealed stale data during ingest spikes
+
+### 11_customer_feedback.md
+- **Purpose:** Pilot CSAT results and qualitative findings
+- **Key Points:**
+  - CSAT 3.6/5 with gaps in policy grounding and outage comms
+  - Missing postmortems and regional updates hurt answer quality
+  - Action items for style guidance and cached outage scripts
+
+### 12_incident_history.md
+- **Purpose:** Postmortems and open remediation items
+- **Key Points:**
+  - Recent incidents: stale search results, log export leak, translation failures
+  - Critical actions due before launch (log export fix, ingest throttling)
+  - Launch blocked if residency fixes slip past April 7
+
+### 13_vendor_risk.md
+- **Purpose:** Third-party dependencies and contract status
+- **Key Points:**
+  - Translation provider and CRM connector have residency/SLA gaps
+  - SCC/DPIA sign-offs pending; decisions due early April
+  - Vendor readiness is gating for a green launch
+
 ## Expected Query Behavior
 
 ### Example Question
@@ -118,6 +153,8 @@ Use this data to test and demonstrate:
 3. **Query Decomposition:** Foundry IQ shows internal reasoning steps
 4. **Cross-Document Synthesis:** Foundry IQ connects information across files
 5. **Nuance Detection:** Foundry IQ catches "Conditional Go" vs simple "Go/No-Go"
+
+> Note: With the extended documents (09-13), the corpus now exceeds 50 chunks. A single-shot AI Search retrieval that caps at 50 will miss residency, incident, and vendor risk details, while Foundry IQ's decomposition can hop across those sources.
 
 ## Intentional Complexity
 
@@ -169,8 +206,13 @@ For **Foundry IQ Knowledge Base**:
 - "Should we launch on April 30? What are the risks?"
 - "この AI 機能をリリースすべきか？ポリシーと予算の観点から評価してください"
 - "What are the dependencies between security assessment, internal beta, and the launch date?"
+- "Can we enable SG failover without violating data residency, and what vendor contracts block this?"
+- "What incidents and customer feedback must be addressed before launch to avoid another stale-data event?"
+- "Which launch blockers remain when combining security, regional compliance, vendor risk, and SLO gaps?"
+- "請求・障害・コンプライアンスを含めて、APACローンチの可否を判断し、根拠となる資料の場所を教えてください。"
 
 ## Version History
 
 - 2026-03-28: Initial sample data set created
+- 2026-04-07: Added regional compliance, resiliency, customer feedback, incident, and vendor risk docs to create >50-chunk corpus for contrast testing
 - Represents state as of late March 2026 (pre-launch)

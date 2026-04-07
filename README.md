@@ -180,6 +180,11 @@ foundry-iq-comparison-demo/
 │   ├── 06_rollout_plan.md
 │   ├── 07_open_issues.md
 │   ├── 08_exception_process.md
+│   ├── 09_regional_compliance.md
+│   ├── 10_resiliency_plan.md
+│   ├── 11_customer_feedback.md
+│   ├── 12_incident_history.md
+│   ├── 13_vendor_risk.md
 │   └── README.md              # Data explanation
 ├── docs/                      # Documentation
 │   ├── azure-ai-search-setup.md
@@ -216,6 +221,7 @@ foundry-iq-comparison-demo/
 - Pre-configured queries of varying complexity
 - Simple → Medium → Complex demonstration
 - Japanese language support
+- Extended sample data (13 docs) pushes beyond AI Search top-50 cap to highlight Foundry IQ decomposition
 
 ## 🧪 Testing the Demo
 
@@ -227,6 +233,11 @@ What is the project timeline?
 ### Medium Complexity (Foundry IQ shows advantage)
 ```
 Are there any security blockers for the launch?
+```
+
+### High Contrast (exceeds top-50 single retrieval)
+```
+Can we launch to APAC with JP primary and SG failover without breaking data residency, vendor contracts, or resiliency SLOs? List blockers and owners.
 ```
 
 ### High Complexity (Foundry IQ significant advantage)

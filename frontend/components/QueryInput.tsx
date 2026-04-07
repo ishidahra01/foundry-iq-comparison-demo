@@ -24,6 +24,10 @@ const SAMPLE_QUERIES = [
   {
     text: "What is the project timeline and budget status?",
     category: "Simple"
+  },
+  {
+    text: "Can we launch to APAC with JP primary and SG failover without breaking data residency, vendor contracts, or resiliency SLOs? List blockers and owners.",
+    category: "High Contrast"
   }
 ];
 
