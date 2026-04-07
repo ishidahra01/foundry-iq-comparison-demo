@@ -55,12 +55,13 @@ MOCK_MODE=true
 
 For **real Azure integration**:
 ```bash
-FOUNDRY_AGENT_ENDPOINT=https://your-endpoint.azure.com
-FOUNDRY_AGENT_API_KEY=your-api-key
+AZURE_AI_PROJECT_ENDPOINT=https://your-ai-services-account.services.ai.azure.com/api/projects/your-project-name
 CLASSIC_RAG_AGENT_NAME=classic-rag-agent
 FOUNDRY_IQ_AGENT_NAME=foundry-iq-agent
 MOCK_MODE=false
 ```
+
+Real mode uses `DefaultAzureCredential`. Run `az login` locally, or configure a managed identity in Azure.
 
 #### Run Backend
 
@@ -284,8 +285,7 @@ Edit `frontend/app/globals.css` for global styles or use Tailwind classes inline
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `FOUNDRY_AGENT_ENDPOINT` | Foundry Agent Service URL | - | No (mock mode) |
-| `FOUNDRY_AGENT_API_KEY` | API key | - | No (mock mode) |
+| `AZURE_AI_PROJECT_ENDPOINT` | Azure AI Project endpoint | - | No (mock mode) |
 | `CLASSIC_RAG_AGENT_NAME` | Classic agent name | `classic-rag-agent` | No |
 | `FOUNDRY_IQ_AGENT_NAME` | Foundry IQ agent name | `foundry-iq-agent` | No |
 | `MOCK_MODE` | Enable mock responses | `true` if no Azure config | No |

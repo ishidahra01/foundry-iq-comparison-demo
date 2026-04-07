@@ -24,7 +24,7 @@ This demo demonstrates the value proposition of **Foundry IQ's Agentic Retrieval
 - **Node.js 18+** and npm
 - **Azure subscription** with:
   - Azure AI Search (with sample data indexed)
-  - Foundry Agent Service with 2 agents configured
+  - Azure AI Foundry Project with 2 agents configured
   - Foundry IQ knowledge base
 
 ### Optional (for local testing)
@@ -97,7 +97,7 @@ See `/docs/foundry-iq-setup.md` for detailed instructions.
 
 #### 1.3 Create Foundry Agents
 
-Create **two agents** in Foundry Agent Service:
+Create **two agents** in your Azure AI Foundry Project:
 
 **Agent 1: classic-rag-agent**
 - Name: `classic-rag-agent`
@@ -122,9 +122,8 @@ cp .env.example .env
 
 2. Edit `.env` with your Azure credentials:
 ```bash
-# Foundry Agent Service
-FOUNDRY_AGENT_ENDPOINT=https://your-foundry-agent-endpoint.azure.com
-FOUNDRY_AGENT_API_KEY=your-api-key-here
+# Azure AI Projects 2.x
+AZURE_AI_PROJECT_ENDPOINT=https://your-ai-services-account.services.ai.azure.com/api/projects/your-project-name
 
 # Agent Names
 CLASSIC_RAG_AGENT_NAME=classic-rag-agent
@@ -158,7 +157,7 @@ foundry-iq-comparison-demo/
 ├── backend/                    # FastAPI backend
 │   ├── main.py                # API endpoints and WebSocket
 │   ├── models.py              # Pydantic data models
-│   ├── agent_client.py        # Foundry Agent Service client
+│   ├── agent_client.py        # Azure AI Projects Responses API client
 │   ├── mock_responses.py      # Mock data generator
 │   └── requirements.txt       # Python dependencies
 ├── frontend/                   # Next.js frontend

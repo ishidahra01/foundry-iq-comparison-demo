@@ -58,8 +58,7 @@ az webapp config appsettings set \
   --name foundry-iq-backend-demo \
   --resource-group foundry-iq-demo-rg \
   --settings \
-    FOUNDRY_AGENT_ENDPOINT="your-endpoint" \
-    FOUNDRY_AGENT_API_KEY="your-key" \
+    AZURE_AI_PROJECT_ENDPOINT="https://your-ai-services-account.services.ai.azure.com/api/projects/your-project-name" \
     CLASSIC_RAG_AGENT_NAME="classic-rag-agent" \
     FOUNDRY_IQ_AGENT_NAME="foundry-iq-agent" \
     MOCK_MODE="false" \
@@ -133,8 +132,7 @@ az webapp config appsettings set \
    - Set startup command: `gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app`
 
 4. Configure Application Settings (Environment Variables):
-   - `FOUNDRY_AGENT_ENDPOINT`
-   - `FOUNDRY_AGENT_API_KEY`
+  - `AZURE_AI_PROJECT_ENDPOINT`
    - `CLASSIC_RAG_AGENT_NAME`
    - `FOUNDRY_IQ_AGENT_NAME`
    - `MOCK_MODE=false`
@@ -397,21 +395,15 @@ az webapp identity assign \
   --resource-group foundry-iq-demo-rg
 ```
 
-4. Grant access:
-```bash
-az keyvault set-policy \
-  --name foundry-iq-keyvault \
-  --object-id <managed-identity-object-id> \
-  --secret-permissions get list
-```
+4. Grant the web app's managed identity an Azure AI Foundry role that can invoke the target agents for your project.
 
-5. Reference in App Settings:
+5. Reference the project endpoint in App Settings:
 ```bash
 az webapp config appsettings set \
   --name foundry-iq-backend-demo \
   --resource-group foundry-iq-demo-rg \
   --settings \
-    FOUNDRY_AGENT_API_KEY="@Microsoft.KeyVault(SecretUri=https://foundry-iq-keyvault.vault.azure.net/secrets/FoundryAgentApiKey/)"
+    AZURE_AI_PROJECT_ENDPOINT="https://your-ai-services-account.services.ai.azure.com/api/projects/your-project-name"
 ```
 
 ## Cost Estimation

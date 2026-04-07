@@ -46,9 +46,15 @@ app.add_middleware(
 sessions: Dict[str, Session] = {}
 
 # Agent client
+legacy_foundry_endpoint = os.getenv("FOUNDRY_AGENT_ENDPOINT")
+if legacy_foundry_endpoint and not os.getenv("AZURE_AI_PROJECT_ENDPOINT"):
+    print(
+        "FOUNDRY_AGENT_ENDPOINT is deprecated for Azure AI Projects 2.x. "
+        "Set AZURE_AI_PROJECT_ENDPOINT instead."
+    )
+
 agent_client = FoundryAgentClient(
-    endpoint=os.getenv("FOUNDRY_AGENT_ENDPOINT"),
-    api_key=os.getenv("FOUNDRY_AGENT_API_KEY"),
+    project_endpoint=os.getenv("AZURE_AI_PROJECT_ENDPOINT"),
     classic_agent_name=os.getenv("CLASSIC_RAG_AGENT_NAME", "classic-rag-agent"),
     foundry_iq_agent_name=os.getenv("FOUNDRY_IQ_AGENT_NAME", "foundry-iq-agent"),
     mock_mode=os.getenv("MOCK_MODE", "false").lower() == "true"

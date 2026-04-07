@@ -4,7 +4,7 @@ FastAPI backend for Foundry IQ Comparison Demo.
 
 ## Overview
 
-This backend provides REST API endpoints and WebSocket connections for comparing Classic RAG and Foundry IQ agent responses. It integrates with Foundry Agent Service and supports mock mode for local testing.
+This backend provides REST API endpoints and WebSocket connections for comparing Classic RAG and Foundry IQ agent responses. It integrates with Azure AI Projects 2.x agents through the Responses API and supports mock mode for local testing.
 
 ## Quick Start
 
@@ -139,8 +139,7 @@ Delete a session
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `FOUNDRY_AGENT_ENDPOINT` | Foundry Agent Service URL | - | No* |
-| `FOUNDRY_AGENT_API_KEY` | API key for authentication | - | No* |
+| `AZURE_AI_PROJECT_ENDPOINT` | Azure AI Project endpoint | - | No* |
 | `CLASSIC_RAG_AGENT_NAME` | Name of Classic RAG agent | `classic-rag-agent` | No |
 | `FOUNDRY_IQ_AGENT_NAME` | Name of Foundry IQ agent | `foundry-iq-agent` | No |
 | `MOCK_MODE` | Enable mock responses | `true` if no Azure config | No |
@@ -160,7 +159,7 @@ main.py
       │
       ├── agent_client.py
       │     ├── FoundryAgentClient
-      │     └── HTTP client for Foundry
+      │     └── Azure AI Projects Responses API client
       │
       ├── mock_responses.py
       │     └── MockResponseGenerator
@@ -229,29 +228,30 @@ MOCK_MODE=true python main.py
 - Simulated query decomposition for Foundry IQ
 - Simulated token usage and timing
 
-## Integration with Foundry Agent Service
+## Integration with Azure AI Projects 2.x
 
 **Real Mode Implementation:**
 
-The `agent_client.py` file contains placeholder code for Foundry Agent Service integration. To integrate with real agents:
+The `agent_client.py` file uses the async `azure-ai-projects` SDK and the OpenAI-compatible Responses API:
 
-1. **Update `_execute_real_agent` method** with actual Foundry API calls
-2. **Update `_execute_real_agent_streaming` method** for streaming
-3. **Parse Foundry responses** in `_parse_agent_response`
-4. **Handle Foundry trace events** in `_parse_trace_event`
+1. Create `AIProjectClient` with `DefaultAzureCredential`
+2. Acquire an OpenAI-compatible client via `get_openai_client()`
+3. Invoke each agent using `responses.create(..., extra_body={"agent_reference": ...})`
+4. Convert Responses API output items and streaming events into the demo's `AgentResult` and `TraceEvent` models
 
 **Example Integration:**
 ```python
 async def _execute_real_agent(self, agent_type, question, run_id):
-    # Your Foundry Agent API call here
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            f"{self.endpoint}/agents/{agent_name}/execute",
-            json={"query": question, "run_id": run_id},
-            headers={"Authorization": f"Bearer {self.api_key}"}
-        ) as response:
-            data = await response.json()
-            return self._parse_agent_response(agent_type, agent_name, data)
+    async with (
+      DefaultAzureCredential() as credential,
+      AIProjectClient(endpoint=self.project_endpoint, credential=credential) as project_client,
+      project_client.get_openai_client() as openai_client,
+    ):
+      response = await openai_client.responses.create(
+        input=question,
+        extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
+      )
+      return self._parse_agent_response(agent_type, agent_name, response, elapsed_ms, run_id)
 ```
 
 ## Development
