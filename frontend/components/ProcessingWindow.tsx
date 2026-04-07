@@ -125,6 +125,21 @@ export default function ProcessingWindow({
 }
 
 function renderMetadata(metadata: Record<string, any>) {
+  if (Array.isArray(metadata.reasoning) && metadata.reasoning.length > 0) {
+    return (
+      <div className="space-y-2">
+        {metadata.reasoning.map((reason: string, index: number) => (
+          <div
+            key={`${reason}-${index}`}
+            className="rounded border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700"
+          >
+            {reason}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   if (metadata.query) {
     return (
       <div className="bg-slate-50 p-2 rounded border border-slate-200">
@@ -151,26 +166,57 @@ function renderMetadata(metadata: Record<string, any>) {
     );
   }
 
-  if (metadata.retrieved_count || metadata.total_results) {
+  if (Array.isArray(metadata.queries) && metadata.queries.length > 0) {
     return (
-      <div className="flex items-center gap-4 text-xs">
-        {metadata.retrieved_count && (
-          <span>
-            <span className="font-medium">Retrieved:</span>{" "}
-            {metadata.retrieved_count}
-          </span>
-        )}
-        {metadata.total_results && (
-          <span>
-            <span className="font-medium">Total:</span>{" "}
-            {metadata.total_results}
-          </span>
-        )}
-        {metadata.subqueries_executed && (
-          <span>
-            <span className="font-medium">Sub-queries:</span>{" "}
-            {metadata.subqueries_executed}
-          </span>
+      <div className="space-y-2">
+        <div className="text-xs font-medium text-slate-700">Queries</div>
+        {metadata.queries.map((query: string, index: number) => (
+          <div
+            key={`${query}-${index}`}
+            className="rounded border border-blue-200 bg-blue-50 p-2 text-xs text-blue-900"
+          >
+            {query}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (metadata.retrieved_count || metadata.total_results || Array.isArray(metadata.sources)) {
+    return (
+      <div className="space-y-2 text-xs">
+        <div className="flex flex-wrap items-center gap-4">
+          {metadata.retrieved_count && (
+            <span>
+              <span className="font-medium">Retrieved:</span>{" "}
+              {metadata.retrieved_count}
+            </span>
+          )}
+          {metadata.total_results && (
+            <span>
+              <span className="font-medium">Total:</span>{" "}
+              {metadata.total_results}
+            </span>
+          )}
+          {metadata.subqueries_executed && (
+            <span>
+              <span className="font-medium">Sub-queries:</span>{" "}
+              {metadata.subqueries_executed}
+            </span>
+          )}
+        </div>
+
+        {Array.isArray(metadata.sources) && metadata.sources.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {metadata.sources.map((source: string, index: number) => (
+              <span
+                key={`${source}-${index}`}
+                className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700"
+              >
+                {source}
+              </span>
+            ))}
+          </div>
         )}
       </div>
     );
@@ -178,12 +224,27 @@ function renderMetadata(metadata: Record<string, any>) {
 
   if (metadata.tool_name) {
     return (
-      <div className="text-xs">
-        <span className="font-medium">Tool:</span> {metadata.tool_name}
-        {metadata.result_count && (
-          <span className="ml-2">
-            ({metadata.result_count} results)
-          </span>
+      <div className="space-y-2 text-xs">
+        <div>
+          <span className="font-medium">Tool:</span> {metadata.tool_name}
+          {metadata.server_label && (
+            <span className="ml-2 font-mono text-slate-500">{metadata.server_label}</span>
+          )}
+          {metadata.result_count && (
+            <span className="ml-2">({metadata.result_count} results)</span>
+          )}
+        </div>
+        {Array.isArray(metadata.documents) && metadata.documents.length > 0 && (
+          <div className="space-y-2">
+            {metadata.documents.slice(0, 4).map((document: any, index: number) => (
+              <div key={`${document.uid || document.document || index}`} className="rounded border border-slate-200 bg-slate-50 p-2">
+                <div className="font-medium text-slate-700">
+                  {document.document || document.blob_url || document.uid}
+                </div>
+                {document.snippet && <div className="mt-1 text-slate-600">{document.snippet}</div>}
+              </div>
+            ))}
+          </div>
         )}
       </div>
     );

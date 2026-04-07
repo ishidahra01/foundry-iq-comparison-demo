@@ -4,11 +4,15 @@ Supports both real agents and mock mode for local testing.
 """
 
 import asyncio
+import json
 import logging
 import os
+from pathlib import PurePosixPath
+import re
 import time
 from datetime import datetime
 from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
+from urllib.parse import urlparse
 
 from models import AgentResult, Citation, Metrics, TraceEvent
 from mock_responses import MockResponseGenerator
@@ -211,9 +215,14 @@ class FoundryAgentClient:
         run_id: str,
     ) -> AgentResult:
         """Parse a Responses API result into AgentResult."""
-        citations = self._extract_citations(response)
+        tool_calls = self._extract_tool_calls(response)
+        citations = self._merge_citations(
+            self._extract_citations_from_annotations(response),
+            self._extract_citations_from_tool_calls(tool_calls),
+        )
         answer = self._extract_output_text(response)
         error = self._build_response_error(response, answer)
+        query_plan = self._extract_query_plan(response, tool_calls)
         return AgentResult(
             agent_type=agent_type,
             agent_name=agent_name,
@@ -224,12 +233,12 @@ class FoundryAgentClient:
             metrics=Metrics(
                 total_time_ms=elapsed_ms,
                 token_usage=self._extract_token_usage(response),
-                retrieval_count=self._count_retrievals(response),
-                subquery_count=self._count_subqueries(response),
-                tool_calls=self._count_tool_calls(response),
+                retrieval_count=self._count_retrievals(response, tool_calls),
+                subquery_count=self._count_subqueries(query_plan),
+                tool_calls=len(tool_calls),
             ),
-            sources_used=self._extract_sources_used(citations),
-            query_plan=self._extract_query_plan(response),
+            sources_used=self._extract_sources_used(citations, tool_calls),
+            query_plan=query_plan,
             error=error,
         )
 
@@ -566,7 +575,7 @@ class FoundryAgentClient:
 
         return "\n".join(parts).strip()
 
-    def _extract_citations(self, response: Any) -> List[Citation]:
+    def _extract_citations_from_annotations(self, response: Any) -> List[Citation]:
         citations: List[Citation] = []
         for item in self._extract_output_items(response):
             if getattr(item, "type", None) != "message":
@@ -598,6 +607,36 @@ class FoundryAgentClient:
             content=getattr(annotation, "quote", None) or getattr(annotation, "text", None),
         )
 
+    def _extract_citations_from_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> List[Citation]:
+        citations: List[Citation] = []
+        for tool_call in tool_calls:
+            for document in tool_call.get("documents", []) or []:
+                document_name = document.get("document") or document.get("blob_url") or document.get("uid")
+                if not document_name:
+                    continue
+                citations.append(
+                    Citation(
+                        document=str(document_name),
+                        chunk=document.get("uid"),
+                        content=document.get("snippet"),
+                    )
+                )
+        return citations
+
+    def _merge_citations(self, *citation_lists: List[Citation]) -> List[Citation]:
+        merged: List[Citation] = []
+        seen: set[tuple[Optional[str], Optional[str], Optional[str]]] = set()
+
+        for citation_list in citation_lists:
+            for citation in citation_list:
+                key = (citation.document, citation.chunk, citation.content)
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append(citation)
+
+        return merged
+
     def _extract_token_usage(self, response: Any) -> Optional[Dict[str, int]]:
         usage = getattr(response, "usage", None)
         if not usage:
@@ -608,36 +647,73 @@ class FoundryAgentClient:
             return None
 
         normalized: Dict[str, int] = {}
-        for key in ("input_tokens", "output_tokens", "total_tokens"):
-            value = usage_dict.get(key)
-            if isinstance(value, int):
-                normalized[key] = value
+        for target_key, candidate_keys in {
+            "input": ["input", "input_tokens", "prompt_tokens"],
+            "output": ["output", "output_tokens", "completion_tokens"],
+            "total": ["total", "total_tokens"],
+        }.items():
+            for candidate_key in candidate_keys:
+                value = usage_dict.get(candidate_key)
+                if isinstance(value, int):
+                    normalized[target_key] = value
+                    break
+
+        if "total" not in normalized and {"input", "output"}.issubset(normalized):
+            normalized["total"] = normalized["input"] + normalized["output"]
+
         return normalized or None
 
-    def _count_retrievals(self, response: Any) -> int:
+    def _count_retrievals(self, response: Any, tool_calls: List[Dict[str, Any]]) -> int:
+        retrieved_count = sum(
+            int(tool_call.get("retrieved_count") or 0)
+            for tool_call in tool_calls
+            if isinstance(tool_call.get("retrieved_count"), int)
+        )
+        if retrieved_count:
+            return retrieved_count
+
+        document_count = sum(len(tool_call.get("documents", []) or []) for tool_call in tool_calls)
+        if document_count:
+            return document_count
+
         return sum(1 for item in self._extract_output_items(response) if getattr(item, "type", None) in self._retrieval_item_types())
 
-    def _count_tool_calls(self, response: Any) -> int:
-        return sum(1 for item in self._extract_output_items(response) if getattr(item, "type", None) in self._tool_item_types())
+    def _count_subqueries(self, query_plan: Optional[Dict[str, Any]]) -> int:
+        if not query_plan:
+            return 0
 
-    def _count_subqueries(self, response: Any) -> int:
-        query_plan = self._extract_query_plan(response) or {}
-        subqueries = query_plan.get("subqueries")
+        subqueries = query_plan.get("decomposed_queries") or query_plan.get("subqueries")
         return len(subqueries) if isinstance(subqueries, list) else 0
 
-    def _extract_sources_used(self, citations: Iterable[Citation]) -> List[str]:
+    def _extract_sources_used(
+        self,
+        citations: Iterable[Citation],
+        tool_calls: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[str]:
         seen = set()
         sources: List[str] = []
         for citation in citations:
             if citation.document not in seen:
                 seen.add(citation.document)
                 sources.append(citation.document)
+
+        for tool_call in tool_calls or []:
+            for source in tool_call.get("sources", []) or []:
+                if source not in seen:
+                    seen.add(source)
+                    sources.append(source)
+
         return sources
 
-    def _extract_query_plan(self, response: Any) -> Optional[Dict[str, Any]]:
+    def _extract_query_plan(
+        self,
+        response: Any,
+        tool_calls: Optional[List[Dict[str, Any]]] = None,
+    ) -> Optional[Dict[str, Any]]:
         reasoning: List[str] = []
         subqueries: List[str] = []
         tool_sequence: List[str] = []
+        retrieved_sources: List[str] = []
 
         for item in self._extract_output_items(response):
             item_type = getattr(item, "type", None)
@@ -646,19 +722,29 @@ class FoundryAgentClient:
                     text = getattr(summary, "text", None)
                     if text:
                         reasoning.append(text)
-            elif item_type in self._tool_item_types():
-                tool_sequence.append(item_type)
-                query = getattr(item, "query", None)
-                if query:
-                    subqueries.append(str(query))
 
-        if not reasoning and not subqueries and not tool_sequence:
+        for tool_call in tool_calls or []:
+            display_name = tool_call.get("display_name") or tool_call.get("tool_name") or tool_call.get("item_type")
+            if display_name:
+                tool_sequence.append(str(display_name))
+            for query in tool_call.get("queries", []) or []:
+                if query and query not in subqueries:
+                    subqueries.append(str(query))
+            for source in tool_call.get("sources", []) or []:
+                if source and source not in retrieved_sources:
+                    retrieved_sources.append(str(source))
+
+        if not reasoning and not subqueries and not tool_sequence and not retrieved_sources:
             return None
 
         return {
+            "retrieval_strategy": "agentic_tool_routing" if tool_sequence else "single_pass_generation",
             "reasoning": reasoning,
+            "decomposed_queries": subqueries,
             "subqueries": subqueries,
             "tool_sequence": tool_sequence,
+            "tool_calls": tool_calls or [],
+            "retrieved_sources": retrieved_sources,
         }
 
     def _extract_verdict(self, response: Any) -> Optional[str]:
@@ -675,18 +761,21 @@ class FoundryAgentClient:
 
     def _build_trace_events_from_response(self, agent_type: str, response: Any, run_id: str) -> List[TraceEvent]:
         timestamp = datetime.utcnow().isoformat()
-        events: List[TraceEvent] = [
-            TraceEvent(
-                timestamp=timestamp,
-                event_type="task_hypothesis_generated",
-                status="completed",
-                mode=agent_type,
-                metadata={"run_id": run_id},
-            )
-        ]
+        events: List[TraceEvent] = []
 
         output_items = self._extract_output_items(response)
-        if any(getattr(item, "type", None) == "reasoning" for item in output_items):
+        reasoning_items = [item for item in output_items if getattr(item, "type", None) == "reasoning"]
+        if reasoning_items:
+            for item in reasoning_items:
+                events.append(
+                    TraceEvent(
+                        timestamp=timestamp,
+                        event_type="task_hypothesis_generated",
+                        status="completed",
+                        mode=agent_type,
+                        metadata=self._build_output_item_metadata(item, run_id),
+                    )
+                )
             events.append(
                 TraceEvent(
                     timestamp=timestamp,
@@ -696,11 +785,21 @@ class FoundryAgentClient:
                     metadata={"run_id": run_id},
                 )
             )
+        else:
+            events.append(
+                TraceEvent(
+                    timestamp=timestamp,
+                    event_type="task_hypothesis_generated",
+                    status="completed",
+                    mode=agent_type,
+                    metadata={"run_id": run_id},
+                )
+            )
 
         for item in output_items:
             item_type = getattr(item, "type", None)
             mapped = self._map_output_item_to_trace_event(item_type)
-            if not mapped:
+            if not mapped or item_type == "reasoning":
                 continue
             events.append(
                 TraceEvent(
@@ -708,11 +807,7 @@ class FoundryAgentClient:
                     event_type=mapped,
                     status="completed",
                     mode=agent_type,
-                    metadata={
-                        "run_id": run_id,
-                        "item_type": item_type,
-                        "item": self._serialize_value(item),
-                    },
+                    metadata=self._build_output_item_metadata(item, run_id),
                 )
             )
 
@@ -740,6 +835,182 @@ class FoundryAgentClient:
         if item_type == "reasoning":
             return "task_hypothesis_generated"
         return None
+
+    def _extract_tool_calls(self, response: Any) -> List[Dict[str, Any]]:
+        return [
+            self._build_tool_call_details(item)
+            for item in self._extract_output_items(response)
+            if getattr(item, "type", None) in self._tool_item_types()
+        ]
+
+    def _build_tool_call_details(self, item: Any) -> Dict[str, Any]:
+        serialized = self._serialize_value(item)
+        if not isinstance(serialized, dict):
+            serialized = {"raw": serialized}
+
+        item_type = getattr(item, "type", None) or serialized.get("type")
+        arguments = self._parse_json_like(serialized.get("arguments"))
+        if not isinstance(arguments, dict):
+            arguments = {}
+
+        output_details = self._parse_tool_output(serialized.get("output"))
+        queries = self._unique_strings(
+            [
+                *[str(query) for query in arguments.get("queries", []) or [] if query],
+                str(arguments["query"]) if arguments.get("query") else "",
+                str(serialized["query"]) if serialized.get("query") else "",
+            ]
+        )
+
+        documents = output_details.get("documents", []) or []
+        sources = self._unique_strings(
+            [self._source_label_from_document(document) for document in documents]
+        )
+
+        return {
+            "item_type": item_type,
+            "tool_name": str(serialized.get("name") or item_type or "tool_call"),
+            "display_name": str(serialized.get("name") or serialized.get("server_label") or item_type or "tool_call"),
+            "server_label": serialized.get("server_label"),
+            "status": serialized.get("status"),
+            "arguments": arguments,
+            "raw_arguments": serialized.get("arguments"),
+            "queries": queries,
+            "retrieved_count": output_details.get("retrieved_count"),
+            "documents": documents,
+            "sources": sources,
+            "output_preview": output_details.get("output_preview"),
+        }
+
+    def _build_output_item_metadata(self, item: Any, run_id: str) -> Dict[str, Any]:
+        item_type = getattr(item, "type", None)
+        metadata: Dict[str, Any] = {
+            "run_id": run_id,
+            "item_type": item_type,
+        }
+
+        if item_type == "reasoning":
+            reasoning = [
+                summary.text
+                for summary in getattr(item, "summary", None) or []
+                if getattr(summary, "text", None)
+            ]
+            metadata["reasoning"] = reasoning
+            if reasoning:
+                metadata["hypothesis"] = reasoning[0]
+            return metadata
+
+        if item_type in self._tool_item_types() or item_type in self._retrieval_item_types():
+            tool_details = self._build_tool_call_details(item)
+            metadata.update(
+                {
+                    "tool_name": tool_details.get("tool_name"),
+                    "server_label": tool_details.get("server_label"),
+                    "queries": tool_details.get("queries", []),
+                    "retrieved_count": tool_details.get("retrieved_count"),
+                    "sources": tool_details.get("sources", []),
+                    "documents": tool_details.get("documents", []),
+                    "output_preview": tool_details.get("output_preview"),
+                }
+            )
+            return metadata
+
+        metadata["item"] = self._serialize_value(item)
+        return metadata
+
+    def _parse_tool_output(self, output: Any) -> Dict[str, Any]:
+        if isinstance(output, str):
+            retrieved_count = self._parse_retrieved_count(output)
+            documents = self._parse_retrieved_documents(output)
+            if retrieved_count is not None or documents:
+                return {
+                    "retrieved_count": retrieved_count,
+                    "documents": documents,
+                    "output_preview": self._truncate_text(output, 280),
+                }
+            return {"output_preview": self._truncate_text(output, 280)}
+
+        if isinstance(output, dict):
+            return {"output_preview": self._truncate_text(json.dumps(output), 280)}
+
+        return {}
+
+    def _parse_retrieved_count(self, output_text: str) -> Optional[int]:
+        match = re.search(r"Retrieved\s+(\d+)\s+documents", output_text, flags=re.IGNORECASE)
+        if not match:
+            return None
+        return int(match.group(1))
+
+    def _parse_retrieved_documents(self, output_text: str) -> List[Dict[str, Any]]:
+        matches = re.finditer(
+            r"【[^】]+†source】\s*(\{.*?\})(?=\s*【[^】]+†source】|\s*Visible:|\s*$)",
+            output_text,
+            flags=re.DOTALL,
+        )
+        documents: List[Dict[str, Any]] = []
+
+        for match in matches:
+            payload = match.group(1).strip()
+            try:
+                document = json.loads(payload)
+            except json.JSONDecodeError:
+                continue
+            documents.append(self._normalize_retrieved_document(document))
+
+        return documents
+
+    def _normalize_retrieved_document(self, document: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "uid": document.get("uid"),
+            "blob_url": document.get("blob_url"),
+            "document": self._source_label_from_document(document),
+            "snippet": self._truncate_text(document.get("snippet"), 320),
+        }
+
+    def _source_label_from_document(self, document: Dict[str, Any]) -> str:
+        blob_url = document.get("blob_url") if isinstance(document, dict) else None
+        if isinstance(blob_url, str) and blob_url:
+            parsed = urlparse(blob_url)
+            if parsed.path:
+                name = PurePosixPath(parsed.path).name
+                if name:
+                    return name
+
+        if isinstance(document, dict):
+            for key in ("document", "title", "filename", "uid"):
+                value = document.get(key)
+                if isinstance(value, str) and value:
+                    return value
+
+        return "unknown-source"
+
+    def _parse_json_like(self, value: Any) -> Any:
+        if isinstance(value, (dict, list)):
+            return value
+        if not isinstance(value, str) or not value.strip():
+            return None
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return None
+
+    def _unique_strings(self, values: Iterable[str]) -> List[str]:
+        seen = set()
+        result: List[str] = []
+        for value in values:
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            result.append(value)
+        return result
+
+    def _truncate_text(self, value: Any, max_length: int) -> Optional[str]:
+        if not isinstance(value, str) or not value:
+            return None
+        text = value.strip()
+        if len(text) <= max_length:
+            return text
+        return f"{text[: max_length - 3].rstrip()}..."
 
     def _tool_item_types(self) -> set[str]:
         return {
