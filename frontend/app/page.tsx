@@ -5,25 +5,42 @@ import ComparisonView from "@/components/ComparisonView";
 import QueryInput from "@/components/QueryInput";
 import { Search } from "lucide-react";
 
+interface QuerySubmission {
+  question: string;
+  mode: "compare" | "evaluate";
+  evaluationSampleId?: string;
+  evaluationJsonl?: string;
+}
+
 export default function Home() {
   const [currentRun, setCurrentRun] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleQuerySubmit = async (question: string) => {
+  const handleQuerySubmit = async (submission: QuerySubmission) => {
     setIsLoading(true);
 
     try {
       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
-      const response = await fetch(`${backendUrl}/compare`, {
+      const endpoint = submission.mode === "evaluate" ? "/compare/evaluate" : "/compare";
+      const body =
+        submission.mode === "evaluate"
+          ? {
+              question: submission.question,
+              evaluation_sample_id: submission.evaluationSampleId,
+              evaluation_jsonl: submission.evaluationJsonl,
+            }
+          : { question: submission.question };
+
+      const response = await fetch(`${backendUrl}${endpoint}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to fetch comparison");
+        throw new Error(`Failed to fetch ${submission.mode === "evaluate" ? "evaluation" : "comparison"}`);
       }
 
       const data = await response.json();

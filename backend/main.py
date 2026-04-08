@@ -16,13 +16,17 @@ import os
 from dotenv import load_dotenv
 
 from agent_client import FoundryAgentClient
+from evaluator import EvaluationService
 from models import (
     ComparisonRequest,
     ComparisonResponse,
+    ComparisonEvaluation,
     AgentResult,
     TraceEvent,
     SessionCreate,
-    Session
+    Session,
+    EvaluatedComparisonRequest,
+    EvaluatedComparisonResponse,
 )
 
 load_dotenv()
@@ -62,6 +66,11 @@ agent_client = FoundryAgentClient(
     mock_mode=os.getenv("MOCK_MODE", "false").lower() == "true"
 )
 
+evaluation_service = EvaluationService(
+    project_endpoint=os.getenv("AZURE_AI_PROJECT_ENDPOINT"),
+    mock_mode=agent_client.mock_mode,
+)
+
 
 @app.get("/health")
 async def health_check():
@@ -83,6 +92,8 @@ async def root():
             "health": "/health",
             "sessions": "/sessions",
             "compare": "/compare",
+            "evaluation_cases": "/evaluation/cases",
+            "compare_evaluate": "/compare/evaluate",
             "websocket": "/ws/compare/{session_id}"
         }
     }
@@ -131,14 +142,53 @@ async def compare_agents(request: ComparisonRequest):
     Compare Classic RAG and Foundry IQ agents (synchronous endpoint)
     For real-time updates, use the WebSocket endpoint instead
     """
+    response = await _run_comparison(request.question, request.session_id)
+
+    return response
+
+
+@app.get("/evaluation/cases")
+async def list_evaluation_cases():
+    """List available JSONL-backed evaluation samples."""
+    return {
+        "cases": [case.model_dump() for case in evaluation_service.list_sample_cases()]
+    }
+
+
+@app.post("/compare/evaluate", response_model=EvaluatedComparisonResponse)
+async def compare_and_evaluate(request: EvaluatedComparisonRequest):
+    """Compare both agents and evaluate them against a ground-truth JSONL case."""
+    evaluation_case = evaluation_service.resolve_case(
+        sample_id=request.evaluation_sample_id,
+        raw_jsonl=request.evaluation_jsonl,
+    )
+
+    comparison = await _run_comparison(
+        evaluation_case.question,
+        request.session_id,
+    )
+
+    evaluation = await evaluation_service.evaluate_answers(
+        evaluation_case,
+        comparison.classic_rag,
+        comparison.foundry_iq,
+    )
+
+    return EvaluatedComparisonResponse(
+        **comparison.model_dump(),
+        evaluation_case=evaluation_case,
+        evaluation=evaluation,
+    )
+
+
+async def _run_comparison(question: str, session_id: Optional[str] = None) -> ComparisonResponse:
     run_id = str(uuid.uuid4())
 
-    # Execute both agents concurrently
     classic_task = asyncio.create_task(
-        agent_client.execute_agent("classic-rag", request.question, run_id)
+        agent_client.execute_agent("classic-rag", question, run_id)
     )
     foundry_iq_task = asyncio.create_task(
-        agent_client.execute_agent("foundry-iq", request.question, run_id)
+        agent_client.execute_agent("foundry-iq", question, run_id)
     )
 
     classic_result, foundry_iq_result = await asyncio.gather(
@@ -147,15 +197,15 @@ async def compare_agents(request: ComparisonRequest):
 
     response = ComparisonResponse(
         run_id=run_id,
-        question=request.question,
+        question=question,
         timestamp=datetime.utcnow().isoformat(),
         classic_rag=classic_result,
         foundry_iq=foundry_iq_result
     )
 
     # Store in session if session_id provided
-    if request.session_id and request.session_id in sessions:
-        sessions[request.session_id].runs.append(response)
+    if session_id and session_id in sessions:
+        sessions[session_id].runs.append(response)
 
     return response
 

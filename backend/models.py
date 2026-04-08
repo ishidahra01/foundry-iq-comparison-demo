@@ -77,6 +77,70 @@ class ComparisonResponse(BaseModel):
     foundry_iq: AgentResult
 
 
+class EvaluationEvidence(BaseModel):
+    """Ground-truth evidence entry for an evaluation sample."""
+    document: str
+    quote: str
+
+
+class EvaluationCaseSummary(BaseModel):
+    """Summary metadata for an evaluation sample."""
+    id: str
+    question: str
+    line_number: int
+    source_file: str
+    is_default: bool = False
+
+
+class EvaluationCase(EvaluationCaseSummary):
+    """Full evaluation sample including ground truth and evidence."""
+    ideal_answer: str
+    evidence: List[EvaluationEvidence] = Field(default_factory=list)
+
+
+class EvaluatedComparisonRequest(BaseModel):
+    """Request to compare agents against a ground-truth evaluation case."""
+    question: Optional[str] = None
+    session_id: Optional[str] = None
+    evaluation_sample_id: Optional[str] = None
+    evaluation_jsonl: Optional[str] = None
+
+
+class AnswerEvaluation(BaseModel):
+    """Structured evaluation for a single agent answer."""
+    overall_score: int = Field(ge=1, le=5)
+    correctness_score: int = Field(ge=1, le=5)
+    completeness_score: int = Field(ge=1, le=5)
+    evidence_alignment_score: int = Field(ge=1, le=5)
+    summary: str
+    strengths: List[str] = Field(default_factory=list)
+    gaps: List[str] = Field(default_factory=list)
+    unsupported_claims: List[str] = Field(default_factory=list)
+
+
+class EvaluationReport(BaseModel):
+    """Structured comparison between agent answers and the ground truth."""
+    overall_summary: str
+    winner: Literal["classic-rag", "foundry-iq", "tie"]
+    winner_reason: str
+    classic_rag: AnswerEvaluation
+    foundry_iq: AnswerEvaluation
+
+
+class ComparisonEvaluation(BaseModel):
+    """Evaluation wrapper with runtime status."""
+    status: Literal["completed", "not_configured", "failed"]
+    evaluator_model: Optional[str] = None
+    report: Optional[EvaluationReport] = None
+    error: Optional[str] = None
+
+
+class EvaluatedComparisonResponse(ComparisonResponse):
+    """Comparison response augmented with evaluation context and results."""
+    evaluation_case: EvaluationCase
+    evaluation: ComparisonEvaluation
+
+
 class Session(BaseModel):
     """A comparison session"""
     id: str

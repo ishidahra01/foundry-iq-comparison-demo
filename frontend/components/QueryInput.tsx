@@ -1,11 +1,26 @@
 "use client";
 
-import { useState } from "react";
-import { Send, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Send, Sparkles, FlaskConical, ClipboardPaste } from "lucide-react";
 
 interface QueryInputProps {
-  onSubmit: (question: string) => void;
+  onSubmit: (submission: QuerySubmission) => void;
   isLoading: boolean;
+}
+
+interface QuerySubmission {
+  question: string;
+  mode: "compare" | "evaluate";
+  evaluationSampleId?: string;
+  evaluationJsonl?: string;
+}
+
+interface EvaluationCaseSummary {
+  id: string;
+  question: string;
+  line_number: number;
+  source_file: string;
+  is_default: boolean;
 }
 
 const SAMPLE_QUERIES = [
@@ -30,11 +45,35 @@ const SAMPLE_QUERIES = [
 export default function QueryInput({ onSubmit, isLoading }: QueryInputProps) {
   const [question, setQuestion] = useState("");
   const [showSamples, setShowSamples] = useState(false);
+  const [evaluationCases, setEvaluationCases] = useState<EvaluationCaseSummary[]>([]);
+  const [pastedJsonl, setPastedJsonl] = useState("");
+  const [inputError, setInputError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+
+    const loadEvaluationCases = async () => {
+      try {
+        const response = await fetch(`${backendUrl}/evaluation/cases`);
+        if (!response.ok) {
+          return;
+        }
+
+        const data = await response.json();
+        setEvaluationCases(Array.isArray(data.cases) ? data.cases : []);
+      } catch (error) {
+        console.error("Failed to load evaluation cases", error);
+      }
+    };
+
+    void loadEvaluationCases();
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (question.trim() && !isLoading) {
-      onSubmit(question.trim());
+      setInputError(null);
+      onSubmit({ question: question.trim(), mode: "compare" });
     }
   };
 
@@ -42,6 +81,41 @@ export default function QueryInput({ onSubmit, isLoading }: QueryInputProps) {
     setQuestion(sampleText);
     setShowSamples(false);
   };
+
+  const handleEvaluationSampleRun = (evaluationCase: EvaluationCaseSummary) => {
+    if (isLoading) {
+      return;
+    }
+
+    setInputError(null);
+    setQuestion(evaluationCase.question);
+    onSubmit({
+      question: evaluationCase.question,
+      mode: "evaluate",
+      evaluationSampleId: evaluationCase.id,
+    });
+  };
+
+  const handlePastedEvaluationRun = () => {
+    if (isLoading) {
+      return;
+    }
+
+    try {
+      const parsed = parseFirstJsonlRow(pastedJsonl);
+      setQuestion(parsed.question);
+      setInputError(null);
+      onSubmit({
+        question: parsed.question,
+        mode: "evaluate",
+        evaluationJsonl: pastedJsonl,
+      });
+    } catch (error) {
+      setInputError(error instanceof Error ? error.message : "Failed to parse JSONL input.");
+    }
+  };
+
+  const defaultEvaluationCase = evaluationCases.find((item) => item.is_default) ?? evaluationCases[0];
 
   return (
     <div className="bg-white rounded-lg border border-slate-200 shadow-sm">
@@ -89,6 +163,90 @@ export default function QueryInput({ onSubmit, isLoading }: QueryInputProps) {
         </div>
       </form>
 
+      <div className="border-t border-slate-200 p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Evaluation Dataset</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Run the current comparison flow against a JSONL ground-truth sample, then evaluate Classic RAG and Foundry IQ answers on the server.
+            </p>
+          </div>
+          <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+            JSONL + LLM Eval
+          </span>
+        </div>
+
+        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
+              <FlaskConical className="h-4 w-4 text-blue-600" />
+              Sample Case
+            </div>
+
+            {defaultEvaluationCase ? (
+              <div className="mt-3 rounded-lg border border-blue-200 bg-white p-3">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                  <span className="rounded-full bg-blue-100 px-2 py-1 font-medium text-blue-700">
+                    {defaultEvaluationCase.id}
+                  </span>
+                  <span>
+                    {defaultEvaluationCase.source_file} line {defaultEvaluationCase.line_number}
+                  </span>
+                </div>
+                <p className="mt-3 text-sm text-slate-700">{defaultEvaluationCase.question}</p>
+                <button
+                  type="button"
+                  onClick={() => handleEvaluationSampleRun(defaultEvaluationCase)}
+                  disabled={isLoading}
+                  className="mt-4 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
+                >
+                  <FlaskConical className="h-4 w-4" />
+                  Run Sample Evaluation
+                </button>
+              </div>
+            ) : (
+              <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">
+                Evaluation sample metadata could not be loaded.
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
+              <ClipboardPaste className="h-4 w-4 text-blue-600" />
+              Paste JSONL Row
+            </div>
+            <textarea
+              value={pastedJsonl}
+              onChange={(e) => setPastedJsonl(e.target.value)}
+              placeholder='Paste one or more JSONL rows with "question", "ideal_answer", and "evidence".'
+              rows={8}
+              className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y"
+              disabled={isLoading}
+            />
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <p className="text-xs text-slate-500">
+                The first valid JSONL row is used to populate the input and trigger evaluation.
+              </p>
+              <button
+                type="button"
+                onClick={handlePastedEvaluationRun}
+                disabled={!pastedJsonl.trim() || isLoading}
+                className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:border-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
+              >
+                <ClipboardPaste className="h-4 w-4" />
+                Run Pasted Evaluation
+              </button>
+            </div>
+            {inputError && (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {inputError}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Sample Queries Dropdown */}
       {showSamples && (
         <div className="border-t border-slate-200 p-4 space-y-2">
@@ -113,4 +271,24 @@ export default function QueryInput({ onSubmit, isLoading }: QueryInputProps) {
       )}
     </div>
   );
+}
+
+function parseFirstJsonlRow(rawJsonl: string) {
+  const lines = rawJsonl.split(/\r?\n/);
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    const payload = JSON.parse(trimmed);
+    if (!payload.question || !payload.ideal_answer) {
+      throw new Error('JSONL row must include both "question" and "ideal_answer" fields.');
+    }
+
+    return payload as { question: string; ideal_answer: string };
+  }
+
+  throw new Error("No valid JSONL row found.");
 }

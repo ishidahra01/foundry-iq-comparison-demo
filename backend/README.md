@@ -59,6 +59,42 @@ Synchronous agent comparison
 }
 ```
 
+### `GET /evaluation/cases`
+Get available JSONL-backed evaluation samples.
+
+**Response:**
+```json
+{
+  "cases": [
+    {
+      "id": "zava_agentic_004",
+      "question": "...",
+      "line_number": 4,
+      "source_file": "agentic_retrieval_eval_10.jsonl",
+      "is_default": true
+    }
+  ]
+}
+```
+
+### `POST /compare/evaluate`
+Compare both agents and evaluate them against a ground-truth JSONL case.
+
+**Request:**
+```json
+{
+  "evaluation_sample_id": "zava_agentic_004"
+}
+```
+
+Or paste a JSONL row directly:
+
+```json
+{
+  "evaluation_jsonl": "{\"id\":\"custom_001\",\"question\":\"...\",\"ideal_answer\":\"...\",\"evidence\":[...] }"
+}
+```
+
 **Response:**
 ```json
 {
@@ -140,6 +176,7 @@ Delete a session
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `AZURE_AI_PROJECT_ENDPOINT` | Azure AI Project endpoint | - | No* |
+| `EVALUATION_MODEL` | Foundry deployment name used for LLM-based answer evaluation | - | No |
 | `CLASSIC_RAG_AGENT_NAME` | Name of Classic RAG agent | `classic-rag-agent` | No |
 | `CLASSIC_RAG_AGENT_VERSION` | Optional fixed version for Classic RAG agent | latest | No |
 | `FOUNDRY_IQ_AGENT_NAME` | Name of Foundry IQ agent | `foundry-iq-agent` | No |
