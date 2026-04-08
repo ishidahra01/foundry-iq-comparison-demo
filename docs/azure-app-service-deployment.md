@@ -61,7 +61,7 @@ az webapp config appsettings set \
     AZURE_AI_PROJECT_ENDPOINT="https://your-ai-services-account.services.ai.azure.com/api/projects/your-project-name" \
     CLASSIC_RAG_AGENT_NAME="classic-rag-agent" \
     FOUNDRY_IQ_AGENT_NAME="foundry-iq-agent" \
-    MOCK_MODE="false" \
+    EVALUATION_MODEL="your-evaluator-deployment-name" \
     BACKEND_HOST="0.0.0.0" \
     BACKEND_PORT="8000"
 ```
@@ -135,7 +135,7 @@ az webapp config appsettings set \
   - `AZURE_AI_PROJECT_ENDPOINT`
    - `CLASSIC_RAG_AGENT_NAME`
    - `FOUNDRY_IQ_AGENT_NAME`
-   - `MOCK_MODE=false`
+  - `EVALUATION_MODEL`
 
 #### Frontend (Node.js)
 

@@ -20,7 +20,6 @@ from evaluator import EvaluationService
 from models import (
     ComparisonRequest,
     ComparisonResponse,
-    ComparisonEvaluation,
     AgentResult,
     TraceEvent,
     SessionCreate,
@@ -63,12 +62,10 @@ agent_client = FoundryAgentClient(
     classic_agent_version=os.getenv("CLASSIC_RAG_AGENT_VERSION"),
     foundry_iq_agent_name=os.getenv("FOUNDRY_IQ_AGENT_NAME", "foundry-iq-agent"),
     foundry_iq_agent_version=os.getenv("FOUNDRY_IQ_AGENT_VERSION"),
-    mock_mode=os.getenv("MOCK_MODE", "false").lower() == "true"
 )
 
 evaluation_service = EvaluationService(
     project_endpoint=os.getenv("AZURE_AI_PROJECT_ENDPOINT"),
-    mock_mode=agent_client.mock_mode,
 )
 
 
@@ -78,7 +75,7 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
-        "mock_mode": agent_client.mock_mode
+        "azure_ai_project_endpoint_configured": bool(os.getenv("AZURE_AI_PROJECT_ENDPOINT"))
     }
 
 

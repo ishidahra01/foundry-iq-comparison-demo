@@ -79,9 +79,8 @@ EVALUATION_SCHEMA: Dict[str, Any] = {
 class EvaluationService:
     """Loads evaluation samples and evaluates comparison outputs using a Foundry-hosted model."""
 
-    def __init__(self, project_endpoint: Optional[str], mock_mode: bool = False):
+    def __init__(self, project_endpoint: Optional[str]):
         self.project_endpoint = project_endpoint
-        self.mock_mode = mock_mode
         self.evaluator_model = os.getenv("EVALUATION_MODEL") or os.getenv("EVALUATION_MODEL_DEPLOYMENT")
         self.sample_file = self._resolve_sample_file()
 
@@ -121,9 +120,6 @@ class EvaluationService:
         classic_result: AgentResult,
         foundry_result: AgentResult,
     ) -> ComparisonEvaluation:
-        if self.mock_mode:
-            return self._build_mock_evaluation(evaluation_case, classic_result, foundry_result)
-
         if not self.evaluator_model:
             return ComparisonEvaluation(
                 status="not_configured",
@@ -266,41 +262,4 @@ class EvaluationService:
             "This includes overall_summary, winner_reason, summary, strengths, gaps, and unsupported_claims. "
             "Return only the structured JSON requested by the schema.\n\n"
             f"Evaluation payload:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
-        )
-
-    def _build_mock_evaluation(
-        self,
-        evaluation_case: EvaluationCase,
-        classic_result: AgentResult,
-        foundry_result: AgentResult,
-    ) -> ComparisonEvaluation:
-        report = EvaluationReport(
-            overall_summary="Mock evaluation mode is active. Scores are placeholder values and should be replaced by a Foundry-hosted evaluator model for real assessment.",
-            winner="foundry-iq",
-            winner_reason="Mock mode defaults to Foundry IQ as the stronger answer to keep the evaluation UI testable.",
-            classic_rag={
-                "overall_score": 3,
-                "correctness_score": 3,
-                "completeness_score": 2,
-                "evidence_alignment_score": 3,
-                "summary": "Mock evaluation placeholder for Classic RAG.",
-                "strengths": ["UI wiring test only"],
-                "gaps": ["Replace with real evaluator model for meaningful scoring"],
-                "unsupported_claims": [],
-            },
-            foundry_iq={
-                "overall_score": 4,
-                "correctness_score": 4,
-                "completeness_score": 4,
-                "evidence_alignment_score": 4,
-                "summary": "Mock evaluation placeholder for Foundry IQ.",
-                "strengths": ["UI wiring test only"],
-                "gaps": ["Replace with real evaluator model for meaningful scoring"],
-                "unsupported_claims": [],
-            },
-        )
-        return ComparisonEvaluation(
-            status="completed",
-            evaluator_model="mock-evaluator",
-            report=report,
         )

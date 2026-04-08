@@ -1,414 +1,176 @@
-# Backend API README
+# Backend API Documentation
 
-FastAPI backend for Foundry IQ Comparison Demo.
+The backend runs the comparison workflow for Classic RAG and Foundry IQ, then optionally evaluates both answers against JSONL ground truth using a Foundry-hosted model.
 
-## Overview
+This service is Azure-only. Mock execution has been removed.
 
-This backend provides REST API endpoints and WebSocket connections for comparing Classic RAG and Foundry IQ agent responses. It integrates with Azure AI Projects 2.x agents through the Responses API and supports mock mode for local testing.
+## Responsibilities
 
-## Quick Start
+- Execute both agents through Azure AI Projects 2.x
+- Stream trace events to the UI over WebSocket
+- Parse response payloads into normalized citations, sources, documents, query plans, and token metrics
+- Load bundled evaluation cases from `sample-data/zava-sample/agentic_retrieval_eval_10.jsonl`
+- Evaluate both answers against ground truth using a Foundry deployment through Entra authentication
+
+## Run Locally
 
 ```bash
-# Install dependencies
+cd backend
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-
-# Run in mock mode (no Azure required)
 python main.py
+```
 
-# Or run with auto-reload
+For reload during development:
+
+```bash
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-API will be available at http://localhost:8000
+The API is available at `http://localhost:8000`.
 
-## Features
+## Required Configuration
 
-- **Mock Mode**: Test without Azure connectivity
-- **REST API**: Synchronous agent comparison
-- **WebSocket**: Real-time streaming with trace events
-- **CORS**: Configured for frontend integration
-- **Auto Documentation**: Swagger UI and ReDoc
-
-## API Endpoints
-
-### `GET /`
-Root endpoint with API information
-
-### `GET /health`
-Health check endpoint
-
-**Response:**
-```json
-{
-  "status": "healthy",
-  "timestamp": "2026-04-06T07:30:00.000Z",
-  "mock_mode": true
-}
+```dotenv
+AZURE_AI_PROJECT_ENDPOINT=https://your-ai-services-account.services.ai.azure.com/api/projects/your-project-name
+CLASSIC_RAG_AGENT_NAME=classic-rag-agent
+FOUNDRY_IQ_AGENT_NAME=foundry-iq-agent
+EVALUATION_MODEL=your-evaluator-deployment-name
+BACKEND_HOST=0.0.0.0
+BACKEND_PORT=8000
 ```
 
-### `POST /compare`
-Synchronous agent comparison
+Authenticate locally with Entra credentials before running comparison or evaluation requests.
 
-**Request:**
+```bash
+az login
+```
+
+## Environment Variables
+
+| Variable | Description | Required |
+| -------- | ----------- | -------- |
+| `AZURE_AI_PROJECT_ENDPOINT` | Azure AI Projects 2.x endpoint | Yes |
+| `CLASSIC_RAG_AGENT_NAME` | Name of Classic RAG agent | Yes |
+| `CLASSIC_RAG_AGENT_VERSION` | Optional Classic RAG agent version | No |
+| `FOUNDRY_IQ_AGENT_NAME` | Name of Foundry IQ agent | Yes |
+| `FOUNDRY_IQ_AGENT_VERSION` | Optional Foundry IQ agent version | No |
+| `EVALUATION_MODEL` | Foundry deployment name used for answer evaluation | No |
+| `BACKEND_HOST` | Bind host | No |
+| `BACKEND_PORT` | Bind port | No |
+| `AGENT_CLIENT_DEBUG` | Enable normalized debug logging | No |
+| `AGENT_CLIENT_DEBUG_RAW` | Enable raw payload logging | No |
+| `AGENT_AUTO_APPROVE_MCP` | Auto-approve MCP tool execution when supported | No |
+
+If `EVALUATION_MODEL` is omitted, `/compare/evaluate` still runs both agents but returns `status: not_configured` for evaluation.
+
+## Endpoints
+
+### `GET /health`
+
+Returns service status and whether `AZURE_AI_PROJECT_ENDPOINT` is configured.
+
+### `GET /`
+
+Returns service metadata and endpoint list.
+
+### `POST /sessions`
+
+Creates an in-memory session.
+
+### `GET /sessions`
+
+Lists all in-memory sessions.
+
+### `GET /sessions/{session_id}`
+
+Fetches a session and its stored runs.
+
+### `DELETE /sessions/{session_id}`
+
+Deletes a session.
+
+### `POST /compare`
+
+Runs both agents against a question.
+
+Request example:
+
 ```json
 {
-  "question": "Your question here",
-  "session_id": "optional-session-id"
+  "question": "匿名で不正を通報したい一方で、自分の個人情報の訂正も依頼したい contractor から相談された。窓口をどう切り分けるべきか。"
 }
 ```
 
 ### `GET /evaluation/cases`
-Get available JSONL-backed evaluation samples.
 
-**Response:**
-```json
-{
-  "cases": [
-    {
-      "id": "zava_agentic_004",
-      "question": "...",
-      "line_number": 4,
-      "source_file": "agentic_retrieval_eval_10.jsonl",
-      "is_default": true
-    }
-  ]
-}
-```
+Lists bundled JSONL evaluation samples with their `id`, `question`, and source metadata.
 
 ### `POST /compare/evaluate`
-Compare both agents and evaluate them against a ground-truth JSONL case.
 
-**Request:**
+Runs both agents on a ground-truth case and evaluates the two answers.
+
+Request using a bundled sample:
+
 ```json
 {
   "evaluation_sample_id": "zava_agentic_004"
 }
 ```
 
-Or paste a JSONL row directly:
+Request using pasted JSONL:
 
 ```json
 {
-  "evaluation_jsonl": "{\"id\":\"custom_001\",\"question\":\"...\",\"ideal_answer\":\"...\",\"evidence\":[...] }"
-}
-```
-
-**Response:**
-```json
-{
-  "run_id": "uuid",
-  "question": "Your question",
-  "timestamp": "2026-04-06T07:30:00.000Z",
-  "classic_rag": { /* AgentResult */ },
-  "foundry_iq": { /* AgentResult */ }
+  "evaluation_jsonl": "{\"id\":\"custom_001\",\"question\":\"...\",\"ideal_answer\":\"...\",\"evidence\":[...]}"
 }
 ```
 
 ### `WebSocket /ws/compare/{session_id}`
-Real-time streaming comparison
 
-**Client Message:**
-```json
-{
-  "question": "Your question here"
-}
-```
+Streams trace events while the comparison is running.
 
-**Server Events:**
-```json
-{"type": "run.started", "run_id": "...", "question": "..."}
-{"type": "agent.event", "agent_type": "classic-rag", "event": {...}}
-{"type": "agent.event", "agent_type": "foundry-iq", "event": {...}}
-{"type": "run.completed", "run_id": "..."}
-{"type": "error", "message": "..."}
-```
+## Response Shape Highlights
 
-### `GET /sample-queries`
-Get pre-configured sample queries
+Each agent result includes:
 
-**Response:**
-```json
-{
-  "queries": [
-    {
-      "id": "simple-1",
-      "category": "Simple",
-      "text": "What is the project timeline?",
-      "description": "Basic factual query"
-    }
-  ]
-}
-```
+- `answer`
+- `citations`
+- `trace_events`
+- `metrics`
+- `sources_used`
+- `query_plan`
+- `tool_calls`
+- `documents`
+- `error`
 
-### `POST /sessions`
-Create a new session
+The parser reconstructs these fields from Azure AI Projects response items, including `mcp_call.output` payloads where Foundry IQ evidence is embedded.
 
-**Request:**
-```json
-{
-  "name": "My Session"
-}
-```
+## Evaluation Model Behavior
 
-**Response:**
-```json
-{
-  "id": "uuid",
-  "name": "My Session",
-  "created_at": "2026-04-06T07:30:00.000Z",
-  "runs": []
-}
-```
+The evaluator prompt instructs the model to:
 
-### `GET /sessions`
-List all sessions
+- score correctness, completeness, and evidence alignment
+- choose a winner
+- keep the output concise
+- write all natural-language fields in the same language used by the ground-truth question and ideal answer
 
-### `GET /sessions/{session_id}`
-Get a specific session
-
-### `DELETE /sessions/{session_id}`
-Delete a session
-
-## Environment Variables
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `AZURE_AI_PROJECT_ENDPOINT` | Azure AI Project endpoint | - | No* |
-| `EVALUATION_MODEL` | Foundry deployment name used for LLM-based answer evaluation | - | No |
-| `CLASSIC_RAG_AGENT_NAME` | Name of Classic RAG agent | `classic-rag-agent` | No |
-| `CLASSIC_RAG_AGENT_VERSION` | Optional fixed version for Classic RAG agent | latest | No |
-| `FOUNDRY_IQ_AGENT_NAME` | Name of Foundry IQ agent | `foundry-iq-agent` | No |
-| `FOUNDRY_IQ_AGENT_VERSION` | Optional fixed version for Foundry IQ agent | latest | No |
-| `MOCK_MODE` | Enable mock responses | `true` if no Azure config | No |
-| `AGENT_AUTO_APPROVE_MCP` | Auto-approve MCP tool invocations such as knowledge base retrieval | `true` | No |
-| `AGENT_CLIENT_DEBUG` | Log response status snapshots and stream event names | `false` | No |
-| `AGENT_CLIENT_DEBUG_RAW` | Log full serialized SDK payloads for debugging | `false` | No |
-| `AGENT_RESPONSE_POLL_INTERVAL_SEC` | Poll interval when agent response is still running | `0.75` | No |
-| `AGENT_RESPONSE_POLL_TIMEOUT_SEC` | Max wait time for in-progress agent responses | `45` | No |
-| `BACKEND_HOST` | Host to bind to | `0.0.0.0` | No |
-| `BACKEND_PORT` | Port to bind to | `8000` | No |
-
-\* Required only when `MOCK_MODE=false`
+Structured output is enforced with JSON schema.
 
 ## Architecture
 
-```
-main.py
-  ├── FastAPI app
-  ├── CORS middleware
-  ├── REST endpoints
-  └── WebSocket handler
-      │
-      ├── agent_client.py
-      │     ├── FoundryAgentClient
-      │     └── Azure AI Projects Responses API client
-      │
-      ├── mock_responses.py
-      │     └── MockResponseGenerator
-      │
-      └── models.py
-            └── Pydantic models
+```text
+backend/
+├── agent_client.py   # Agent execution + response normalization
+├── evaluator.py      # JSONL loading + evaluator model integration
+├── main.py           # FastAPI endpoints + websocket handling
+├── models.py         # Request/response schemas
+└── requirements.txt
 ```
 
-## Data Models
+## Notes
 
-### AgentResult
-```python
-class AgentResult(BaseModel):
-    agent_type: Literal["classic-rag", "foundry-iq"]
-    agent_name: str
-    answer: str
-    verdict: Optional[Literal["Go", "Conditional", "No-Go"]]
-    citations: List[Citation]
-    trace_events: List[TraceEvent]
-    metrics: Metrics
-    sources_used: List[str]
-    query_plan: Optional[Dict[str, Any]]
-    error: Optional[str]
-```
-
-### TraceEvent
-```python
-class TraceEvent(BaseModel):
-    timestamp: str
-    event_type: Literal[
-        "task_hypothesis_generated",
-        "tool_call_started",
-        "tool_call_completed",
-        "retrieval_started",
-        "retrieval_completed",
-        "answer_synthesis_started",
-        "answer_completed",
-        "error"
-    ]
-    status: Literal["pending", "running", "completed", "failed"]
-    elapsed_ms: Optional[int]
-    mode: Literal["classic-rag", "foundry-iq"]
-    metadata: Dict[str, Any]
-```
-
-## Mock Mode
-
-Mock mode generates realistic agent responses without Azure connectivity.
-
-**Enable:**
-```bash
-# Just don't set Azure credentials
-python main.py
-
-# Or explicitly
-MOCK_MODE=true python main.py
-```
-
-**Characteristics:**
-- Classic RAG: Faster, simpler, fewer citations
-- Foundry IQ: Slower, more comprehensive, more citations
-- Realistic trace events and metrics
-
-**Mock Response Quality:**
-- Pre-configured answers for demo scenario
-- Simulated query decomposition for Foundry IQ
-- Simulated token usage and timing
-
-## Integration with Azure AI Projects 2.x
-
-**Real Mode Implementation:**
-
-The `agent_client.py` file uses the async `azure-ai-projects` SDK and the OpenAI-compatible Responses API:
-
-1. Create `AIProjectClient` with `DefaultAzureCredential`
-2. Acquire an OpenAI-compatible client via `get_openai_client()`
-3. Invoke each agent using `responses.create(..., extra_body={"agent_reference": ...})`
-4. Convert Responses API output items and streaming events into the demo's `AgentResult` and `TraceEvent` models
-
-**Example Integration:**
-```python
-async def _execute_real_agent(self, agent_type, question, run_id):
-    async with (
-      DefaultAzureCredential() as credential,
-      AIProjectClient(endpoint=self.project_endpoint, credential=credential) as project_client,
-      project_client.get_openai_client() as openai_client,
-    ):
-      response = await openai_client.responses.create(
-        input=question,
-        extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
-      )
-      return self._parse_agent_response(agent_type, agent_name, response, elapsed_ms, run_id)
-```
-
-## Development
-
-### Run with Auto-Reload
-```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### Interactive API Docs
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-
-### Testing
-```bash
-# Health check
-curl http://localhost:8000/health
-
-# Compare agents
-curl -X POST http://localhost:8000/compare \
-  -H "Content-Type: application/json" \
-  -d '{"question": "Test question"}'
-```
-
-## Production Deployment
-
-See [Azure App Service Deployment](../docs/azure-app-service-deployment.md)
-
-**Startup Command:**
-```bash
-gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app
-```
-
-**Dependencies for Production:**
-Add to `requirements.txt`:
-```
-gunicorn==21.2.0
-```
-
-## Error Handling
-
-The backend provides structured error responses:
-
-```json
-{
-  "detail": "Error message here"
-}
-```
-
-**Common Errors:**
-- `404`: Endpoint or session not found
-- `422`: Invalid request body
-- `500`: Internal server error (check logs)
-
-## Logging
-
-Logs are printed to stdout/stderr. In production, configure log aggregation (Application Insights, etc.).
-
-**Log Levels:**
-- INFO: Normal operations
-- WARNING: Non-critical issues
-- ERROR: Critical errors
-
-## Performance
-
-**Concurrent Requests:**
-- Both agents are called concurrently (`asyncio.gather`)
-- WebSocket supports multiple concurrent connections
-- No blocking operations in request handlers
-
-**Optimization Tips:**
-- Use connection pooling for HTTP clients
-- Cache frequent queries (not implemented)
-- Scale horizontally for high load
-
-## Security
-
-**CORS:**
-- Configured in `main.py`
-- Update `allow_origins` for production
-
-**API Keys:**
-- Store in environment variables
-- Never commit to git
-- Use Azure Key Vault in production
-
-**Input Validation:**
-- Pydantic models validate all inputs
-- Size limits on question text (implicit)
-
-## Troubleshooting
-
-### Import Errors
-```bash
-# Ensure virtual environment is activated
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### Port Already in Use
-```bash
-# Use different port
-BACKEND_PORT=8001 python main.py
-```
-
-### CORS Errors
-Update `allow_origins` in `main.py` to include your frontend URL
-
-### WebSocket Connection Failed
-- Check firewall settings
-- Verify no proxy blocking WebSocket
-- Check browser console for errors
-
-## License
-
-MIT
+- Session storage is in-memory only.
+- CORS is open for development and should be restricted in production.
+- If one agent fails, the API still returns the other result plus the captured error payload.

@@ -1,6 +1,5 @@
 """
 Client for interacting with Azure AI Projects agents via the Responses API.
-Supports both real agents and mock mode for local testing.
 """
 
 import asyncio
@@ -15,7 +14,6 @@ from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
 from urllib.parse import urlparse
 
 from models import AgentResult, Citation, Metrics, TraceEvent
-from mock_responses import MockResponseGenerator
 
 try:
     from azure.ai.projects.aio import AIProjectClient
@@ -29,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 class FoundryAgentClient:
-    """Client for Azure AI Projects agents with mock support."""
+    """Client for Azure AI Projects agents."""
 
     def __init__(
         self,
@@ -38,25 +36,19 @@ class FoundryAgentClient:
         classic_agent_version: Optional[str],
         foundry_iq_agent_name: str,
         foundry_iq_agent_version: Optional[str],
-        mock_mode: bool = False,
     ):
         self.project_endpoint = project_endpoint
         self.classic_agent_name = classic_agent_name
         self.classic_agent_version = classic_agent_version
         self.foundry_iq_agent_name = foundry_iq_agent_name
         self.foundry_iq_agent_version = foundry_iq_agent_version
-        self.mock_mode = mock_mode or not project_endpoint
         self.debug_logging = os.getenv("AGENT_CLIENT_DEBUG", "false").lower() == "true"
         self.debug_raw_payloads = os.getenv("AGENT_CLIENT_DEBUG_RAW", "false").lower() == "true"
         self.auto_approve_mcp = os.getenv("AGENT_AUTO_APPROVE_MCP", "true").lower() == "true"
         self.response_poll_interval_sec = float(os.getenv("AGENT_RESPONSE_POLL_INTERVAL_SEC", "0.75"))
         self.response_poll_timeout_sec = float(os.getenv("AGENT_RESPONSE_POLL_TIMEOUT_SEC", "45"))
 
-        if self.mock_mode:
-            logger.warning("Running in MOCK MODE - using simulated agent responses")
-            self.mock_generator = MockResponseGenerator()
-        else:
-            logger.info("Connected to Azure AI Project: %s", project_endpoint)
+        logger.info("Configured Azure AI Project endpoint: %s", project_endpoint)
 
     async def execute_agent(
         self,
@@ -65,8 +57,6 @@ class FoundryAgentClient:
         run_id: str,
     ) -> AgentResult:
         """Execute an agent and return the full result."""
-        if self.mock_mode:
-            return await self._execute_mock_agent(agent_type, question, run_id)
         return await self._execute_real_agent(agent_type, question, run_id)
 
     async def execute_agent_streaming(
@@ -76,35 +66,7 @@ class FoundryAgentClient:
         run_id: str,
     ) -> AsyncIterator[TraceEvent]:
         """Execute an agent with streaming trace events."""
-        if self.mock_mode:
-            async for event in self._execute_mock_agent_streaming(agent_type, question, run_id):
-                yield event
-            return
-
         async for event in self._execute_real_agent_streaming(agent_type, question, run_id):
-            yield event
-
-    async def _execute_mock_agent(
-        self,
-        agent_type: str,
-        question: str,
-        run_id: str,
-    ) -> AgentResult:
-        """Execute mock agent (for local testing)."""
-        start_time = time.time()
-        await asyncio.sleep(0.5 if agent_type == "classic-rag" else 1.5)
-        result = self.mock_generator.generate_response(agent_type, question, run_id)
-        result.metrics.total_time_ms = int((time.time() - start_time) * 1000)
-        return result
-
-    async def _execute_mock_agent_streaming(
-        self,
-        agent_type: str,
-        question: str,
-        run_id: str,
-    ) -> AsyncIterator[TraceEvent]:
-        """Execute mock agent with streaming events."""
-        async for event in self.mock_generator.generate_streaming_response(agent_type, question, run_id):
             yield event
 
     async def _execute_real_agent(
@@ -550,11 +512,11 @@ class FoundryAgentClient:
     def _validate_real_mode_dependencies(self) -> None:
         if AIProjectClient is None or DefaultAzureCredential is None:
             raise RuntimeError(
-                "Real mode requires azure-ai-projects and azure-identity. "
+                "This service requires azure-ai-projects and azure-identity. "
                 "Install backend requirements before using Azure AI Projects integration."
             )
         if not self.project_endpoint:
-            raise RuntimeError("AZURE_AI_PROJECT_ENDPOINT is required when MOCK_MODE=false.")
+            raise RuntimeError("AZURE_AI_PROJECT_ENDPOINT is required.")
 
     def _extract_output_items(self, response: Any) -> List[Any]:
         output = getattr(response, "output", None)
