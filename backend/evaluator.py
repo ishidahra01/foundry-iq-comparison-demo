@@ -262,6 +262,8 @@ class EvaluationService:
             "You are evaluating two RAG-style answers against a ground-truth answer and evidence. "
             "Score each answer on correctness, completeness, and evidence alignment from 1 to 5. "
             "Be strict, concise, and focus on factual agreement with the ground truth. "
+            "Write every natural-language field in the same language used by the ground-truth question and ideal answer. "
+            "This includes overall_summary, winner_reason, summary, strengths, gaps, and unsupported_claims. "
             "Return only the structured JSON requested by the schema.\n\n"
             f"Evaluation payload:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
         )

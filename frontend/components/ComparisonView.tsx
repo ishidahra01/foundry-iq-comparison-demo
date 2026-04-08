@@ -10,7 +10,6 @@ import {
   Network,
   Database,
   FileSearch,
-  ArrowRight,
   ClipboardCheck,
   Trophy,
   ShieldCheck,
@@ -19,22 +18,6 @@ import {
 
 interface ComparisonViewProps {
   data: any;
-}
-
-interface QueryMapDocument {
-  document: string;
-  snippet?: string;
-}
-
-interface QueryMapStep {
-  index: number;
-  query: string;
-  toolName: string;
-  serverLabel: string | null;
-  sources: string[];
-  sourceCount: number;
-  documentCount: number;
-  previewDocuments: QueryMapDocument[];
 }
 
 export default function ComparisonView({ data }: ComparisonViewProps) {
@@ -47,7 +30,6 @@ export default function ComparisonView({ data }: ComparisonViewProps) {
   const foundryTools = getToolCount(data.foundry_iq);
   const classicRetrievals = data.classic_rag?.metrics?.retrieval_count ?? 0;
   const foundryRetrievals = data.foundry_iq?.metrics?.retrieval_count ?? 0;
-  const foundryQueryMap = buildQueryMap(data.foundry_iq);
 
   return (
     <div className="space-y-6">
@@ -199,109 +181,6 @@ export default function ComparisonView({ data }: ComparisonViewProps) {
               />
             </div>
           </section>
-
-          {foundryQueryMap.length > 0 && (
-            <section className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-6 shadow-sm">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900">
-                    Query to Tool to Source Map
-                  </h3>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Machine-parsed routing map showing how Foundry IQ decomposed the request and what evidence each step touched.
-                  </p>
-                </div>
-                <div className="rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-medium text-blue-700">
-                  {foundryQueryMap.length} mapped step{foundryQueryMap.length === 1 ? "" : "s"}
-                </div>
-              </div>
-
-              <div className="mt-5 space-y-4">
-                {foundryQueryMap.map((step: QueryMapStep) => (
-                  <div
-                    key={`${step.index}-${step.query}`}
-                    className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-                  >
-                    <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
-                      <span className="rounded-full bg-blue-100 px-2.5 py-1 text-blue-700">
-                        Step {step.index}
-                      </span>
-                      <span>{step.documentCount} docs</span>
-                      <span>•</span>
-                      <span>{step.sourceCount} sources</span>
-                    </div>
-
-                    <div className="mt-3 grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_auto_minmax(0,1fr)] xl:items-start">
-                      <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">
-                          Query
-                        </div>
-                        <div className="mt-1 text-sm text-blue-950">{step.query}</div>
-                      </div>
-
-                      <div className="hidden xl:flex h-full items-center justify-center px-2 text-slate-300">
-                        <ArrowRight className="h-5 w-5" />
-                      </div>
-
-                      <div className="space-y-3">
-                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                            Tool
-                          </div>
-                          <div className="mt-1 text-sm font-semibold text-slate-900">
-                            {step.toolName}
-                          </div>
-                          {step.serverLabel && (
-                            <div className="mt-1 font-mono text-xs text-slate-500">
-                              {step.serverLabel}
-                            </div>
-                          )}
-                        </div>
-
-                        {step.sources.length > 0 && (
-                          <div className="rounded-lg border border-slate-200 bg-white p-3">
-                            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                              Sources Touched
-                            </div>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {step.sources.map((source) => (
-                                <span
-                                  key={`${step.index}-${source}`}
-                                  className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700"
-                                >
-                                  {source}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {step.previewDocuments.length > 0 && (
-                      <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                        {step.previewDocuments.map((document: QueryMapDocument, documentIndex: number) => (
-                          <div
-                            key={`${step.index}-${document.document}-${documentIndex}`}
-                            className="rounded-lg border border-slate-200 bg-slate-50 p-3"
-                          >
-                            <div className="text-sm font-medium text-slate-900">
-                              {document.document}
-                            </div>
-                            {document.snippet && (
-                              <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                                {document.snippet}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <AgentResultPanel
@@ -558,38 +437,4 @@ function formatDelta(delta: number, label: string) {
     return `${delta} ${label}`;
   }
   return `0 ${label}`;
-}
-
-function buildQueryMap(result: any): QueryMapStep[] {
-  const toolCalls = Array.isArray(result?.query_plan?.tool_calls)
-    ? result.query_plan.tool_calls
-    : [];
-
-  let stepIndex = 1;
-
-  const steps = toolCalls.flatMap((toolCall: any) => {
-    const queries = Array.isArray(toolCall?.queries) && toolCall.queries.length > 0
-      ? toolCall.queries
-      : ["No query captured"];
-    const sources = Array.isArray(toolCall?.sources) ? toolCall.sources : [];
-    const documents = Array.isArray(toolCall?.documents) ? toolCall.documents : [];
-
-    return queries.map((query: string, queryIndex: number) => ({
-      index: stepIndex++,
-      query,
-      toolName: toolCall?.tool_name || toolCall?.display_name || "Tool Call",
-      serverLabel: toolCall?.server_label || null,
-      sources,
-      sourceCount: sources.length,
-      documentCount: typeof toolCall?.retrieved_count === "number"
-        ? toolCall.retrieved_count
-        : documents.length,
-      previewDocuments: documents.slice(0, 2).map((document: any) => ({
-        document: document?.document || document?.blob_url || document?.uid || "Unknown document",
-        snippet: document?.snippet,
-      })),
-    }));
-  });
-
-  return steps;
 }
